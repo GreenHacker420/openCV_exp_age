@@ -1,0 +1,306 @@
+/* IRIS Loading Page Custom Animations */
+
+/* Scanning grid animation */
+@keyframes scan-grid {
+  0% { 
+    transform: translateX(-100%); 
+    opacity: 0;
+  }
+  50% { 
+    opacity: 1; 
+  }
+  100% { 
+    transform: translateX(100%); 
+    opacity: 0;
+  }
+}
+
+/* Iris dilation animation */
+@keyframes iris-dilate {
+  0% { 
+    transform: scale(0.8); 
+    box-shadow: inset 0 0 30px rgba(0, 248, 255, 0.6);
+  }
+  50% { 
+    transform: scale(1.1); 
+    box-shadow: inset 0 0 50px rgba(0, 248, 255, 0.9);
+  }
+  100% { 
+    transform: scale(0.8); 
+    box-shadow: inset 0 0 30px rgba(0, 248, 255, 0.6);
+  }
+}
+
+/* Pupil contraction based on progress */
+@keyframes pupil-contract {
+  0% { 
+    transform: translate(-50%, -50%) scale(1); 
+  }
+  100% { 
+    transform: translate(-50%, -50%) scale(0.3); 
+  }
+}
+
+/* Outer ring rotation */
+@keyframes ring-rotate {
+  0% { 
+    transform: rotate(0deg); 
+    filter: drop-shadow(0 0 20px #00F8FF);
+  }
+  50% { 
+    filter: drop-shadow(0 0 30px #00F8FF);
+  }
+  100% { 
+    transform: rotate(360deg); 
+    filter: drop-shadow(0 0 20px #00F8FF);
+  }
+}
+
+/* Scanning line sweep */
+@keyframes scan-sweep {
+  0% { 
+    transform: rotate(0deg); 
+    opacity: 0.8;
+  }
+  50% { 
+    opacity: 1;
+  }
+  100% { 
+    transform: rotate(360deg); 
+    opacity: 0.8;
+  }
+}
+
+/* Text glow pulse */
+@keyframes text-glow {
+  0%, 100% { 
+    text-shadow: 
+      0 0 10px #00F8FF,
+      0 0 20px #00F8FF,
+      0 0 30px #00F8FF;
+  }
+  50% { 
+    text-shadow: 
+      0 0 20px #00F8FF,
+      0 0 30px #00F8FF,
+      0 0 40px #00F8FF,
+      0 0 50px #00F8FF;
+  }
+}
+
+/* Progress bar glow */
+@keyframes progress-glow {
+  0% { 
+    box-shadow: 0 0 10px #00F8FF;
+  }
+  50% { 
+    box-shadow: 
+      0 0 20px #00F8FF,
+      0 0 30px #0080FF;
+  }
+  100% { 
+    box-shadow: 0 0 10px #00F8FF;
+  }
+}
+
+/* System status indicator pulse */
+@keyframes status-pulse {
+  0%, 100% { 
+    opacity: 1;
+    box-shadow: 0 0 5px currentColor;
+  }
+  50% { 
+    opacity: 0.6;
+    box-shadow: 0 0 15px currentColor;
+  }
+}
+
+/* Particle float animation */
+@keyframes particle-float {
+  0% { 
+    transform: translateY(0px) rotate(0deg);
+    opacity: 0;
+  }
+  10% { 
+    opacity: 1;
+  }
+  90% { 
+    opacity: 1;
+  }
+  100% { 
+    transform: translateY(-100vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* Holographic shimmer effect */
+@keyframes hologram-shimmer {
+  0% { 
+    background-position: -200% center;
+  }
+  100% { 
+    background-position: 200% center;
+  }
+}
+
+/* Circuit trace animation */
+@keyframes circuit-trace {
+  0% { 
+    stroke-dashoffset: 1000;
+    opacity: 0;
+  }
+  20% { 
+    opacity: 1;
+  }
+  100% { 
+    stroke-dashoffset: 0;
+    opacity: 0.7;
+  }
+}
+
+/* Loading bar segments */
+@keyframes loading-segments {
+  0% { 
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  50% { 
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+  51% { 
+    transform-origin: right;
+  }
+  100% { 
+    transform: scaleX(0);
+    transform-origin: right;
+  }
+}
+
+/* Iris detail lines animation */
+@keyframes iris-lines {
+  0% { 
+    opacity: 0.3;
+    transform: translateX(-50%) rotate(var(--rotation)) scaleY(0.8);
+  }
+  50% { 
+    opacity: 0.9;
+    transform: translateX(-50%) rotate(var(--rotation)) scaleY(1.2);
+  }
+  100% { 
+    opacity: 0.3;
+    transform: translateX(-50%) rotate(var(--rotation)) scaleY(0.8);
+  }
+}
+
+/* Completion burst effect */
+@keyframes completion-burst {
+  0% { 
+    transform: scale(0);
+    opacity: 0;
+    filter: brightness(1);
+  }
+  50% { 
+    transform: scale(1.2);
+    opacity: 1;
+    filter: brightness(1.5);
+  }
+  100% { 
+    transform: scale(1);
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+/* Utility classes for animations */
+.iris-loading-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.iris-eye {
+  animation: iris-dilate 2s ease-in-out infinite;
+}
+
+.iris-ring {
+  animation: ring-rotate 8s linear infinite;
+}
+
+.iris-scanner {
+  animation: scan-sweep 4s linear infinite;
+}
+
+.iris-text-glow {
+  animation: text-glow 3s ease-in-out infinite;
+}
+
+.iris-progress-bar {
+  animation: progress-glow 2s ease-in-out infinite;
+}
+
+.iris-status-active {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+.iris-completion {
+  animation: completion-burst 1s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .iris-eye {
+    animation-duration: 1.5s;
+  }
+  
+  .iris-ring {
+    animation-duration: 6s;
+  }
+  
+  .iris-scanner {
+    animation-duration: 3s;
+  }
+}
+
+/* High contrast mode adjustments */
+@media (prefers-contrast: high) {
+  .iris-eye {
+    filter: contrast(1.5);
+  }
+  
+  .iris-text-glow {
+    text-shadow: none;
+    color: #FFFFFF;
+  }
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .iris-eye,
+  .iris-ring,
+  .iris-scanner,
+  .iris-text-glow,
+  .iris-progress-bar,
+  .iris-status-active {
+    animation: none;
+  }
+  
+  .iris-completion {
+    animation: none;
+    transform: scale(1);
+  }
+}
+
+/* Dark mode enhancements */
+@media (prefers-color-scheme: dark) {
+  .iris-loading-container {
+    background: radial-gradient(circle at center, #001122 0%, #000000 100%);
+  }
+}
+
+/* Print styles (hide animations) */
+@media print {
+  .iris-loading-container * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
