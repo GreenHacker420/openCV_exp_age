@@ -8,126 +8,38 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "lint:fix": "next lint --fix",
-    "type-check": "tsc --noEmit",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "analyze": "cross-env ANALYZE=true next build",
-    "lighthouse": "lighthouse http://localhost:3000 --output html --output-path ./lighthouse-report.html"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "^15.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "typescript": "^5.3.3",
-    "@types/node": "^20.10.6",
-    "@types/react": "^18.2.46",
-    "@types/react-dom": "^18.2.18",
-    "@arwes/core": "^1.0.0",
-    "@arwes/sounds": "^1.0.0",
-    "@arwes/animated": "^1.0.0",
-    "@arwes/react-animator": "^1.0.0",
-    "@arwes/react-bgs": "^1.0.0",
-    "tailwindcss": "^3.4.0",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "framer-motion": "^11.0.0",
-    "lucide-react": "^0.309.0",
-    "socket.io-client": "^4.7.4",
-    "zustand": "^4.4.7",
-    "jotai": "^2.6.2",
-    "@radix-ui/react-dialog": "^1.0.5",
-    "@radix-ui/react-progress": "^1.0.3",
-    "@radix-ui/react-slider": "^1.1.2",
-    "@radix-ui/react-switch": "^1.0.3",
-    "@radix-ui/react-toast": "^1.1.5",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.0.0",
-    "tailwind-merge": "^2.2.0",
-    "recharts": "^2.10.3",
-    "react-webcam": "^7.2.0",
-    "canvas-confetti": "^1.9.2",
-    "howler": "^2.2.4",
-    "@types/howler": "^2.2.11",
-    "lodash": "^4.17.21",
-    "@types/lodash": "^4.14.202"
+    "@arwes/react": "1.0.0-alpha.23",
+    "@emotion/react": "^11.13.3",
+    "@tailwindcss/aspect-ratio": "^0.4.2",
+    "@tailwindcss/forms": "^0.5.10",
+    "@tailwindcss/typography": "^0.5.16",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.11.17",
+    "lucide-react": "^0.468.0",
+    "next": "^15.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.1",
+    "tailwind-merge": "^2.5.4",
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "@next/eslint-config-next": "^15.0.0",
-    "@typescript-eslint/eslint-plugin": "^6.15.0",
-    "@typescript-eslint/parser": "^6.15.0",
-    "eslint": "^8.56.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-react": "^7.33.2",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "prettier": "^3.1.1",
-    "@tailwindcss/typography": "^0.5.10",
-    "@tailwindcss/forms": "^0.5.7",
-    "@tailwindcss/aspect-ratio": "^0.4.2",
-    "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0",
-    "@testing-library/react": "^14.1.2",
-    "@testing-library/jest-dom": "^6.1.5",
-    "@testing-library/user-event": "^14.5.1",
-    "cross-env": "^7.0.3",
-    "@next/bundle-analyzer": "^15.0.0",
-    "lighthouse": "^11.4.0",
-    "husky": "^8.0.3",
-    "lint-staged": "^15.2.0"
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.1.0",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "npm": ">=10.0.0"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "lint-staged": {
-    "*.{js,jsx,ts,tsx}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md,css}": [
-      "prettier --write"
-    ]
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged",
-      "pre-push": "npm run type-check"
-    }
-  },
-  "keywords": [
-    "facial-analysis",
-    "computer-vision",
-    "robotics",
-    "nextjs",
-    "arwes",
-    "real-time",
-    "ai",
-    "opencv",
-    "iris-robotics-club"
-  ],
-  "author": "IRIS Robotics Club",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/iris-robotics-club/facial-analysis-platform"
-  },
-  "bugs": {
-    "url": "https://github.com/iris-robotics-club/facial-analysis-platform/issues"
-  },
-  "homepage": "https://github.com/iris-robotics-club/facial-analysis-platform#readme"
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
 }
