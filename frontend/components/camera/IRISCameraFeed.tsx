@@ -9,9 +9,11 @@ import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, CameraOff, Settings, AlertCircle, Play, Square } from 'lucide-react'
 import { useCamera } from '@/hooks/use-camera'
-import { useFaceAnalysis } from '@/hooks/useFaceAnalysis'
+import { useBackendConnection } from '@/hooks/useBackendConnection'
+import { useWebSocket, useVideoFrameSender, useAnalysisReceiver } from '@/hooks/use-websocket'
 import { FaceDetectionResult } from '@/lib/faceAnalysis'
-import { PerformanceMonitor } from '@/components/analysis/PerformanceMonitor'
+
+import { getWebSocketUrl } from '@/lib/config'
 
 interface IRISCameraFeedProps {
   className?: string
@@ -19,68 +21,121 @@ interface IRISCameraFeedProps {
   onPerformanceUpdate?: (metrics: any) => void
 }
 
-export function IRISCameraFeed({ 
+export function IRISCameraFeed({
   className = '',
   onFaceResults,
   onPerformanceUpdate
 }: IRISCameraFeedProps) {
   const [showSettings, setShowSettings] = useState(false)
-  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
 
-  // Camera hook
+  // Backend connection
+  const {
+    isConnected: backendConnected,
+    error: backendError,
+    connect: connectBackend,
+    disconnect: disconnectBackend
+  } = useBackendConnection()
+
+  // WebSocket connection for real-time communication
+  const {
+    socket,
+    isConnected: wsConnected,
+    error: wsError,
+    connect: connectWS,
+    disconnect: disconnectWS
+  } = useWebSocket(getWebSocketUrl(), {
+    autoConnect: true,
+    onConnect: () => console.log('WebSocket connected for camera feed'),
+    onDisconnect: () => console.log('WebSocket disconnected'),
+    onError: (error) => console.error('WebSocket error:', error)
+  })
+
+  // Video frame sender
+  const { sendFrame } = useVideoFrameSender(socket, wsConnected)
+
+  // Analysis results receiver
+  const {
+    faces: backendFaces,
+    analysis: backendAnalysis,
+    isProcessing: backendProcessing,
+    metrics: backendMetrics
+  } = useAnalysisReceiver(socket)
+
+  // Camera hook with frame capture for backend analysis
   const {
     videoRef,
+    canvasRef,
     isActive: cameraActive,
     isLoading: cameraLoading,
     error: cameraError,
     startCamera,
     stopCamera,
+    captureFrame,
     permissions
   } = useCamera({
-    onFrame: () => {}, // We'll handle frames in face analysis
+    onFrame: (frameData) => {
+      // Send frames to backend if connected
+      if (wsConnected && frameData) {
+        console.log('IRISCameraFeed: Sending frame to backend, size:', frameData.length)
+        sendFrame(frameData, 200) // Send every 200ms (5 FPS to backend)
+      } else {
+        console.log('IRISCameraFeed: Not sending frame - wsConnected:', wsConnected, 'frameData:', !!frameData)
+      }
+    },
     frameRate: 30
   })
 
-  // Face analysis hook
-  const {
-    isInitialized: analysisReady,
-    isLoading: analysisLoading,
-    error: analysisError,
-    results: faceResults,
-    performanceMetrics,
-    optimizer,
-    startAnalysis,
-    stopAnalysis
-  } = useFaceAnalysis({
-    enabled: true,
-    targetFps: 15,
-    onResults: (results) => {
-      onFaceResults?.(results)
-      drawFaceOverlays(results)
-    },
-    onPerformanceUpdate: onPerformanceUpdate || (() => {})
-  })
+  // Performance metrics for backend analysis
+  const performanceMetrics = {
+    fps: (backendMetrics as any)?.fps || 0,
+    processingTime: (backendMetrics as any)?.processing_time || 0,
+    memoryUsage: 0,
+    facesDetected: backendFaces.length,
+    averageConfidence: backendFaces.reduce((acc: number, face: any) => acc + (face.confidence || 0), 0) / Math.max(backendFaces.length, 1)
+  }
+
+  // Connect to backend when component mounts
+  useEffect(() => {
+    console.log('IRISCameraFeed: Connecting to backend...')
+    connectBackend()
+    connectWS()
+    return () => {
+      console.log('IRISCameraFeed: Disconnecting from backend...')
+      disconnectBackend()
+      disconnectWS()
+    }
+  }, [connectBackend, connectWS, disconnectBackend, disconnectWS])
+
+  // Debug WebSocket connection status
+  useEffect(() => {
+    console.log('IRISCameraFeed: WebSocket connected:', wsConnected)
+  }, [wsConnected])
+
+  // Handle backend face results
+  useEffect(() => {
+    if (backendFaces.length > 0) {
+      onFaceResults?.(backendFaces as FaceDetectionResult[])
+      drawFaceOverlays(backendFaces as FaceDetectionResult[])
+    }
+  }, [backendFaces, onFaceResults])
+
+  // Update performance metrics
+  useEffect(() => {
+    if (onPerformanceUpdate) {
+      onPerformanceUpdate(performanceMetrics)
+    }
+  }, [performanceMetrics, onPerformanceUpdate])
 
   // Handle camera toggle
   const handleCameraToggle = async () => {
     if (cameraActive) {
       stopCamera()
-      stopAnalysis()
     } else {
       await startCamera()
     }
   }
-
-  // Start face analysis when camera becomes active
-  useEffect(() => {
-    if (cameraActive && analysisReady && videoRef.current) {
-      startAnalysis(videoRef.current)
-    } else if (!cameraActive) {
-      stopAnalysis()
-    }
-  }, [cameraActive, analysisReady, startAnalysis, stopAnalysis, videoRef])
 
   // Draw face detection overlays
   const drawFaceOverlays = (faces: FaceDetectionResult[]) => {
@@ -173,8 +228,9 @@ export function IRISCameraFeed({
     })
   }
 
-  const hasError = cameraError || analysisError
-  const isLoading = cameraLoading || analysisLoading
+  const hasError = cameraError || wsError
+  const isLoading = cameraLoading
+  const analysisReady = wsConnected
 
   return (
     <div className={`relative ${className}`}>
@@ -209,19 +265,22 @@ export function IRISCameraFeed({
         {/* Performance metrics and monitor */}
         {cameraActive && analysisReady && (
           <div className="absolute top-4 right-4 flex items-center space-x-2 z-20">
-            <div className="bg-black/60 px-3 py-1 rounded-full">
+            {/* Connection status */}
+            <div className="bg-black/60 px-3 py-1 rounded-full flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${
+                wsConnected ? 'bg-green-400' : 'bg-red-400'
+              }`} />
               <span className="text-xs text-cyan-400">
-                {performanceMetrics.fps} FPS | {faceResults.length} faces
+                {wsConnected ? 'BACKEND' : 'OFFLINE'}
               </span>
             </div>
-            {optimizer && (
-              <PerformanceMonitor
-                metrics={performanceMetrics}
-                optimizer={optimizer}
-                isVisible={showPerformanceMonitor}
-                onToggleVisibility={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
-              />
-            )}
+
+            {/* Performance metrics */}
+            <div className="bg-black/60 px-3 py-1 rounded-full">
+              <span className="text-xs text-cyan-400">
+                {performanceMetrics.fps.toFixed(1)} FPS | {backendFaces.length} faces
+              </span>
+            </div>
           </div>
         )}
 
@@ -282,7 +341,7 @@ export function IRISCameraFeed({
                 <AlertCircle className="w-12 h-12 mx-auto mb-4" />
                 <p className="mb-2">Camera Error</p>
                 <p className="text-sm text-red-300">
-                  {cameraError?.message || analysisError?.message}
+                  {cameraError?.message || wsError?.message || 'Unknown error'}
                 </p>
               </div>
             </div>

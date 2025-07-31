@@ -227,16 +227,19 @@ def handle_video_frame(data):
         
         # Process frame
         results = video_processor.process_frame(image)
-        
+
         # Calculate processing time
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
-        
+
         # Update FPS metric
         current_fps = 1000 / max(processing_time, 1)
         metrics['fps'] = metrics['fps'] * 0.9 + current_fps * 0.1
-        
+
+        # Debug: Log the results structure
+        logger.info(f"Processing results: {type(results)}, keys: {results.keys() if isinstance(results, dict) else 'Not a dict'}")
+
         # Emit results
-        if results['faces']:
+        if results and 'faces' in results and results['faces']:
             emit('face_detected', {
                 'faces': results['faces'],
                 'timestamp': timestamp,
@@ -249,11 +252,14 @@ def handle_video_frame(data):
                     'timestamp': timestamp,
                     'processing_time': processing_time
                 })
-        else:
+        elif results and 'faces' in results:
             emit('no_faces_detected', {
                 'timestamp': timestamp,
                 'processing_time': processing_time
             })
+        else:
+            # Handle case where results is malformed
+            emit('error', {'message': f'Invalid processing results: {results}'})
             
     except Exception as e:
         logger.error(f"Error processing video frame: {str(e)}")

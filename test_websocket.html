@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="logs"></div>
+
+    <script>
+        const logs = document.getElementById('logs');
+        const status = document.getElementById('status');
+        
+        function log(message) {
+            console.log(message);
+            logs.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+        }
+
+        // Test WebSocket connection
+        const socket = io('http://127.0.0.1:5001', {
+            transports: ['websocket', 'polling'],
+            timeout: 20000,
+            reconnection: true,
+            autoConnect: true,
+        });
+
+        socket.on('connect', () => {
+            log('✅ Connected to backend');
+            status.textContent = 'Connected';
+            status.style.color = 'green';
+        });
+
+        socket.on('disconnect', (reason) => {
+            log('❌ Disconnected: ' + reason);
+            status.textContent = 'Disconnected';
+            status.style.color = 'red';
+        });
+
+        socket.on('connected', (data) => {
+            log('📡 Received connected event: ' + JSON.stringify(data));
+        });
+
+        socket.on('error', (error) => {
+            log('🚨 Error: ' + error);
+        });
+
+        socket.on('connect_error', (error) => {
+            log('🚨 Connection error: ' + error);
+        });
+
+        socket.on('face_detected', (data) => {
+            log('👤 Face detected: ' + JSON.stringify(data));
+        });
+
+        socket.on('analysis_complete', (data) => {
+            log('🧠 Analysis complete: ' + JSON.stringify(data));
+        });
+
+        socket.on('no_faces_detected', (data) => {
+            log('❌ No faces detected: ' + JSON.stringify(data));
+        });
+
+        // Test sending a mock video frame after connection
+        socket.on('connected', (data) => {
+            log('📡 Received connected event: ' + JSON.stringify(data));
+
+            // Send a test frame after 2 seconds
+            setTimeout(() => {
+                log('📸 Sending test video frame...');
+                // Create a small test image (1x1 pixel red image in base64)
+                const testFrame = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+
+                socket.emit('video_frame', {
+                    data: testFrame,
+                    timestamp: Date.now()
+                });
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

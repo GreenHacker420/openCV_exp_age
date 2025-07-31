@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -7,8 +7,6 @@ export const metadata: Metadata = {
   keywords: 'facial analysis, computer vision, robotics, AI, real-time, IRIS',
   authors: [{ name: 'IRIS Robotics Club' }],
   manifest: '/manifest.json',
-  themeColor: '#00f8ff',
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -32,6 +30,15 @@ export const metadata: Metadata = {
     'msapplication-TileColor': '#00f8ff',
     'msapplication-config': '/browserconfig.xml'
   }
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#00f8ff'
 }
 
 export default function RootLayout({

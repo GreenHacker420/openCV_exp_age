@@ -6,7 +6,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { FaceAnalysisEngine, FaceDetectionResult, AnalysisConfig, PerformanceMetrics } from '@/lib/faceAnalysis'
+import { getFaceAnalysisEngine, FaceAnalysisEngine, FaceDetectionResult, AnalysisConfig, PerformanceMetrics } from '@/lib/faceAnalysis'
 import { PerformanceOptimizer } from '@/lib/performanceOptimizer'
 
 interface UseFaceAnalysisOptions {
@@ -99,14 +99,16 @@ export function useFaceAnalysis(options: UseFaceAnalysisOptions = {}): UseFaceAn
           ...optimizer.getSettings()
         } : config
 
-        const engine = new FaceAnalysisEngine(optimizedConfig)
-        await engine.initialize()
+        const engine = getFaceAnalysisEngine(optimizedConfig)
+
+        // Only initialize if not already initialized
+        if (!engine.isReady()) {
+          await engine.initialize()
+        }
 
         if (mountedRef.current) {
           engineRef.current = engine
           setIsInitialized(true)
-        } else {
-          engine.dispose()
         }
       } catch (err) {
         const error = err instanceof Error ? err : new Error('Failed to initialize face analysis')
@@ -123,10 +125,8 @@ export function useFaceAnalysis(options: UseFaceAnalysisOptions = {}): UseFaceAn
 
     return () => {
       mountedRef.current = false
-      if (engineRef.current) {
-        engineRef.current.dispose()
-        engineRef.current = null
-      }
+      // Don't dispose the singleton engine, just clear the reference
+      engineRef.current = null
     }
   }, [enabled, config, onError])
 
