@@ -13,7 +13,7 @@ from datetime import datetime
 from .face_detector import FaceDetector
 from .age_estimator import AgeEstimator
 from .emotion_detector import EmotionDetector
-from ..utils.image_utils import resize_image, extract_face_region
+from utils.image_utils import resize_image, extract_face_region
 
 logger = logging.getLogger(__name__)
 

@@ -53,7 +53,7 @@ pip install -r requirements.txt
 ### Download AI Models
 ```bash
 # Download pre-trained models (will be automated)
-python utils/download_models.py
+python3 utils/download_models.py
 ```
 
 ### Run Development Server

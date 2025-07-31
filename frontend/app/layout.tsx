@@ -6,8 +6,32 @@ export const metadata: Metadata = {
   description: 'Real-time facial analysis demonstration using advanced computer vision',
   keywords: 'facial analysis, computer vision, robotics, AI, real-time, IRIS',
   authors: [{ name: 'IRIS Robotics Club' }],
-  viewport: 'width=device-width, initial-scale=1',
-  themeColor: '#000000',
+  manifest: '/manifest.json',
+  themeColor: '#00f8ff',
+  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'IRIS'
+  },
+  openGraph: {
+    title: 'IRIS Facial Analysis Platform',
+    description: 'Real-time facial analysis with age, gender, and emotion detection',
+    type: 'website',
+    siteName: 'IRIS'
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'IRIS Facial Analysis Platform',
+    description: 'Real-time facial analysis with age, gender, and emotion detection'
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-status-bar-style': 'black-translucent',
+    'msapplication-TileColor': '#00f8ff',
+    'msapplication-config': '/browserconfig.xml'
+  }
 }
 
 export default function RootLayout({

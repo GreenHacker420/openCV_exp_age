@@ -361,3 +361,5 @@ lighthouse-report.html
 
 
 frontend/node_modules
+backend/cv_venv
+cv_venv/
