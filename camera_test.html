@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #000;
+            color: #fff;
+        }
+        video {
+            border: 2px solid #00ffff;
+            max-width: 640px;
+            width: 100%;
+        }
+        canvas {
+            border: 2px solid #ff00ff;
+            max-width: 640px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button {
+            background: #00ffff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 5px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #00cccc;
+        }
+        .info {
+            margin: 10px 0;
+            padding: 10px;
+            background: #333;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Camera Test for IRIS</h1>
+    
+    <div class="info">
+        <p><strong>Status:</strong> <span id="status">Not started</span></p>
+        <p><strong>Video Dimensions:</strong> <span id="videoDims">Unknown</span></p>
+        <p><strong>Canvas Dimensions:</strong> <span id="canvasDims">Unknown</span></p>
+        <p><strong>Frame Count:</strong> <span id="frameCount">0</span></p>
+    </div>
+    
+    <button onclick="startCamera()">Start Camera</button>
+    <button onclick="captureFrame()">Capture Frame</button>
+    <button onclick="testWebSocket()">Test WebSocket</button>
+    
+    <div>
+        <h3>Video Feed:</h3>
+        <video id="video" autoplay playsinline muted></video>
+    </div>
+    
+    <div>
+        <h3>Captured Frame:</h3>
+        <canvas id="canvas"></canvas>
+    </div>
+    
+    <div class="info">
+        <h3>Console Output:</h3>
+        <div id="console" style="background: #111; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+        const videoDimsEl = document.getElementById('videoDims');
+        const canvasDimsEl = document.getElementById('canvasDims');
+        const frameCountEl = document.getElementById('frameCount');
+        const consoleEl = document.getElementById('console');
+        
+        let frameCount = 0;
+        let socket = null;
+        
+        function log(message) {
+            console.log(message);
+            consoleEl.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+        
+        async function startCamera() {
+            try {
+                log('Requesting camera access...');
+                statusEl.textContent = 'Requesting camera...';
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    },
+                    audio: false
+                });
+                
+                log('Camera access granted');
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    log(`Video metadata loaded: ${video.videoWidth}x${video.videoHeight}`);
+                    videoDimsEl.textContent = `${video.videoWidth}x${video.videoHeight}`;
+                    statusEl.textContent = 'Camera active';
+                    
+                    // Set canvas size to match video
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    canvasDimsEl.textContent = `${canvas.width}x${canvas.height}`;
+                };
+                
+                await video.play();
+                log('Video playing');
+                
+            } catch (error) {
+                log('Camera error: ' + error.message);
+                statusEl.textContent = 'Camera error: ' + error.message;
+            }
+        }
+        
+        function captureFrame() {
+            if (!video.videoWidth || !video.videoHeight) {
+                log('Video not ready - dimensions: ' + video.videoWidth + 'x' + video.videoHeight);
+                return;
+            }
+            
+            // Draw video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to base64
+            const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+            const base64Data = dataURL.split(',')[1];
+            
+            frameCount++;
+            frameCountEl.textContent = frameCount;
+            
+            log(`Frame captured: ${base64Data.length} bytes`);
+            
+            return base64Data;
+        }
+        
+        function testWebSocket() {
+            if (socket) {
+                socket.close();
+            }
+            
+            log('Connecting to WebSocket...');
+            socket = io('http://localhost:5001');
+            
+            socket.on('connect', () => {
+                log('WebSocket connected');
+            });
+            
+            socket.on('connected', (data) => {
+                log('Server connected event: ' + JSON.stringify(data));
+            });
+            
+            socket.on('face_detected', (data) => {
+                log('Face detected: ' + JSON.stringify(data));
+            });
+            
+            socket.on('error', (data) => {
+                log('Server error: ' + JSON.stringify(data));
+            });
+            
+            socket.on('disconnect', () => {
+                log('WebSocket disconnected');
+            });
+            
+            // Test sending a frame
+            setTimeout(() => {
+                const frameData = captureFrame();
+                if (frameData) {
+                    log('Sending frame to server...');
+                    socket.emit('video_frame', {
+                        data: 'data:image/jpeg;base64,' + frameData,
+                        timestamp: Date.now()
+                    });
+                }
+            }, 1000);
+        }
+        
+        // Auto-start camera on page load
+        window.onload = () => {
+            log('Page loaded, starting camera...');
+            startCamera();
+        };
+    </script>
+    
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</body>
+</html>

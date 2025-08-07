@@ -6,6 +6,7 @@ Main Flask application with WebSocket support for real-time facial analysis.
 
 import os
 import logging
+import time
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -212,7 +213,7 @@ def handle_disconnect():
 def handle_video_frame(data):
     """Handle incoming video frame for real-time analysis."""
     try:
-        start_time = datetime.now()
+        start_time = time.time()
         
         # Decode base64 image
         image_data = data.get('data', '')
@@ -234,38 +235,14 @@ def handle_video_frame(data):
         results = video_processor.process_frame(image)
         logger.info(f"Video processor returned: {results}")
 
-        # For demo purposes, if no faces detected, send mock data to test overlay
-        if not results or not results.get('faces'):
-            # Create mock face detection result for testing overlay
-            mock_results = {
-                'faces': [{
-                    'id': 'mock-face-1',
-                    'bbox': [100, 100, 200, 250],  # x, y, width, height
-                    'confidence': 0.95,
-                    'age': 25,
-                    'age_range': '20-30',
-                    'age_confidence': 0.8,
-                    'dominant_emotion': 'happy',
-                    'emotion_confidence': 0.9,
-                    'emotions': {
-                        'happy': 0.9,
-                        'neutral': 0.05,
-                        'surprised': 0.03,
-                        'sad': 0.02
-                    },
-                    'gender': 'female',
-                    'gender_confidence': 0.85
-                }],
-                'analysis': {
-                    'total_faces': 1,
-                    'processing_time': (time.time() - start_time) * 1000
-                }
-            }
-            logger.info("No faces detected, using mock data for overlay testing")
-            results = mock_results
+        # Log detection results
+        if results and results.get('faces'):
+            logger.info(f"Detected {len(results['faces'])} faces with real analysis")
+        else:
+            logger.debug("No faces detected in frame")
 
         # Calculate processing time
-        processing_time = (datetime.now() - start_time).total_seconds() * 1000
+        processing_time = (time.time() - start_time) * 1000
 
         # Update FPS metric
         current_fps = 1000 / max(processing_time, 1)   

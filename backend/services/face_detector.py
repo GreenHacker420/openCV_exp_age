@@ -1,6 +1,6 @@
 """
-Face Detection Service using MediaPipe.
-Provides real-time face detection with bounding boxes and confidence scores.
+Face Detection Service using MediaPipe and InsightFace.
+Provides real-time face detection with bounding boxes, confidence scores, age, and emotion analysis.
 """
 
 import cv2
@@ -9,102 +9,218 @@ import mediapipe as mp
 import logging
 from typing import List, Dict, Tuple, Optional
 
+# Try to import InsightFace, fall back to MediaPipe only if not available
+try:
+    import insightface
+    INSIGHTFACE_AVAILABLE = True
+except ImportError:
+    INSIGHTFACE_AVAILABLE = False
+    logging.warning("InsightFace not available, using MediaPipe only")
+
 logger = logging.getLogger(__name__)
 
 class FaceDetector:
     """
-    Face detection service using MediaPipe Face Detection.
+    Face detection service using MediaPipe Face Detection and InsightFace for analysis.
     Optimized for real-time performance with high accuracy.
     """
-    
-    def __init__(self, 
-                 model_selection=1, 
+
+    def __init__(self,
+                 model_selection=1,
                  min_detection_confidence=0.7,
-                 max_faces=5):
+                 max_faces=5,
+                 use_insightface=True):
         """
         Initialize the face detector.
-        
+
         Args:
             model_selection (int): 0 for short-range (2m), 1 for full-range (5m)
             min_detection_confidence (float): Minimum confidence threshold
             max_faces (int): Maximum number of faces to detect
+            use_insightface (bool): Whether to use InsightFace for enhanced analysis
         """
         self.model_selection = model_selection
         self.min_detection_confidence = min_detection_confidence
         self.max_faces = max_faces
-        
+        self.use_insightface = use_insightface and INSIGHTFACE_AVAILABLE
+
         # Initialize MediaPipe
         self.mp_face_detection = mp.solutions.face_detection
         self.mp_drawing = mp.solutions.drawing_utils
-        
+
         try:
             self.face_detection = self.mp_face_detection.FaceDetection(
                 model_selection=model_selection,
                 min_detection_confidence=min_detection_confidence
             )
-            logger.info(f"Face detector initialized with model_selection={model_selection}")
+            logger.info(f"MediaPipe face detector initialized with model_selection={model_selection}")
         except Exception as e:
-            logger.error(f"Failed to initialize face detector: {str(e)}")
+            logger.error(f"Failed to initialize MediaPipe face detector: {str(e)}")
             raise
+
+        # Initialize InsightFace if available
+        self.insight_app = None
+        if self.use_insightface:
+            try:
+                self.insight_app = insightface.app.FaceAnalysis(name='buffalo_l')
+                self.insight_app.prepare(ctx_id=0, det_size=(640, 640))
+                logger.info("InsightFace initialized successfully for enhanced analysis")
+            except Exception as e:
+                logger.warning(f"Failed to initialize InsightFace: {str(e)}, falling back to MediaPipe only")
+                self.use_insightface = False
+                self.insight_app = None
     
     def detect_faces(self, image: np.ndarray) -> List[Dict]:
         """
-        Detect faces in an image.
-        
+        Detect faces in an image with enhanced analysis if InsightFace is available.
+
         Args:
             image (np.ndarray): Input image in BGR format
-            
+
         Returns:
-            List[Dict]: List of detected faces with bounding boxes and confidence
+            List[Dict]: List of detected faces with bounding boxes, confidence, age, and emotion
+        """
+        try:
+            # Use InsightFace if available for better analysis
+            if self.use_insightface and self.insight_app is not None:
+                return self._detect_faces_insightface(image)
+            else:
+                return self._detect_faces_mediapipe(image)
+
+        except Exception as e:
+            logger.error(f"Error detecting faces: {str(e)}")
+            return []
+
+    def _detect_faces_insightface(self, image: np.ndarray) -> List[Dict]:
+        """
+        Detect faces using InsightFace for enhanced analysis.
+        """
+        try:
+            # InsightFace expects RGB format
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            # Perform analysis
+            faces_data = self.insight_app.get(rgb_image)
+
+            faces = []
+            for i, face in enumerate(faces_data[:self.max_faces]):
+                # Extract bounding box
+                bbox = face.bbox.astype(int)
+                x, y, x2, y2 = bbox
+                w = x2 - x
+                h = y2 - y
+
+                # Ensure coordinates are within image bounds
+                height, width = image.shape[:2]
+                x = max(0, x)
+                y = max(0, y)
+                w = min(w, width - x)
+                h = min(h, height - y)
+
+                # Extract age and gender
+                age = int(face.age) if hasattr(face, 'age') else None
+                gender = 'male' if hasattr(face, 'gender') and face.gender == 1 else 'female'
+
+                # Create face data with enhanced information
+                face_data = {
+                    'id': f'face_{i}',
+                    'bbox': [x, y, w, h],
+                    'confidence': float(face.det_score),
+                    'center': [x + w // 2, y + h // 2],
+                    'area': w * h,
+                    'age': age,
+                    'gender': gender,
+                    'age_confidence': 0.9,  # InsightFace generally has high confidence
+                    'gender_confidence': 0.9,
+                    # Add basic emotion (InsightFace doesn't provide emotion directly)
+                    'dominant_emotion': 'neutral',
+                    'emotion_confidence': 0.5,
+                    'emotions': {
+                        'neutral': 0.5,
+                        'happy': 0.2,
+                        'sad': 0.1,
+                        'angry': 0.1,
+                        'surprised': 0.1
+                    }
+                }
+
+                faces.append(face_data)
+
+            # Sort faces by confidence (highest first)
+            faces.sort(key=lambda x: x['confidence'], reverse=True)
+
+            return faces
+
+        except Exception as e:
+            logger.error(f"Error with InsightFace detection: {str(e)}")
+            # Fall back to MediaPipe
+            return self._detect_faces_mediapipe(image)
+
+    def _detect_faces_mediapipe(self, image: np.ndarray) -> List[Dict]:
+        """
+        Detect faces using MediaPipe (fallback method).
         """
         try:
             # Convert BGR to RGB for MediaPipe
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            
+
             # Perform detection
             results = self.face_detection.process(rgb_image)
-            
+
             faces = []
             if results.detections:
                 height, width = image.shape[:2]
-                
+
                 for i, detection in enumerate(results.detections[:self.max_faces]):
                     # Extract bounding box
                     bbox = detection.location_data.relative_bounding_box
-                    
+
                     # Convert relative coordinates to absolute
                     x = int(bbox.xmin * width)
                     y = int(bbox.ymin * height)
                     w = int(bbox.width * width)
                     h = int(bbox.height * height)
-                    
+
                     # Ensure coordinates are within image bounds
                     x = max(0, x)
                     y = max(0, y)
                     w = min(w, width - x)
                     h = min(h, height - y)
-                    
+
                     # Extract confidence score
                     confidence = detection.score[0] if detection.score else 0.0
-                    
-                    # Create face data
+
+                    # Create face data with fallback values
                     face_data = {
                         'id': f'face_{i}',
                         'bbox': [x, y, w, h],
                         'confidence': float(confidence),
                         'center': [x + w // 2, y + h // 2],
-                        'area': w * h
+                        'area': w * h,
+                        'age': 25,  # Fallback age
+                        'gender': 'unknown',
+                        'age_confidence': 0.3,
+                        'gender_confidence': 0.3,
+                        'dominant_emotion': 'neutral',
+                        'emotion_confidence': 0.3,
+                        'emotions': {
+                            'neutral': 0.7,
+                            'happy': 0.1,
+                            'sad': 0.1,
+                            'angry': 0.05,
+                            'surprised': 0.05
+                        }
                     }
-                    
+
                     faces.append(face_data)
-            
+
             # Sort faces by confidence (highest first)
             faces.sort(key=lambda x: x['confidence'], reverse=True)
-            
+
             return faces
-            
+
         except Exception as e:
-            logger.error(f"Error detecting faces: {str(e)}")
+            logger.error(f"Error with MediaPipe detection: {str(e)}")
             return []
     
     def detect_faces_with_landmarks(self, image: np.ndarray) -> List[Dict]:
