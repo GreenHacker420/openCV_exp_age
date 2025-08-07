@@ -17,6 +17,37 @@ except ImportError:
     INSIGHTFACE_AVAILABLE = False
     logging.warning("InsightFace not available, using MediaPipe only")
 
+# Import the new MiVOLO and EmoNeXt models
+try:
+    from .mivolo_age_estimator import MiVOLOAgeEstimator
+    MIVOLO_AVAILABLE = True
+except ImportError as e:
+    MIVOLO_AVAILABLE = False
+    logging.warning(f"MiVOLO age estimator not available: {str(e)}")
+
+# Keep DEX as fallback
+try:
+    from .dex_age_estimator import DEXAgeEstimator
+    DEX_AVAILABLE = True
+except ImportError as e:
+    DEX_AVAILABLE = False
+    logging.warning(f"DEX age estimator not available: {str(e)}")
+
+try:
+    from .emonext_detector import EmoNeXtDetector
+    EMONEXT_AVAILABLE = True
+except ImportError as e:
+    EMONEXT_AVAILABLE = False
+    logging.warning(f"EmoNeXt detector not available: {str(e)}")
+
+# Import face tracker
+try:
+    from .face_tracker import FaceTracker
+    FACE_TRACKER_AVAILABLE = True
+except ImportError as e:
+    FACE_TRACKER_AVAILABLE = False
+    logging.warning(f"Face tracker not available: {str(e)}")
+
 logger = logging.getLogger(__name__)
 
 class FaceDetector:
@@ -29,7 +60,12 @@ class FaceDetector:
                  model_selection=1,
                  min_detection_confidence=0.7,
                  max_faces=5,
-                 use_insightface=True):
+                 use_insightface=True,
+                 use_mivolo=True,
+                 use_dex=False,
+                 use_emonext=True,
+                 enable_gpu=False,
+                 enable_tracking=True):
         """
         Initialize the face detector.
 
@@ -37,12 +73,22 @@ class FaceDetector:
             model_selection (int): 0 for short-range (2m), 1 for full-range (5m)
             min_detection_confidence (float): Minimum confidence threshold
             max_faces (int): Maximum number of faces to detect
-            use_insightface (bool): Whether to use InsightFace for enhanced analysis
+            use_insightface (bool): Whether to use InsightFace for enhanced analysis (fallback)
+            use_mivolo (bool): Whether to use MiVOLO for age estimation (primary)
+            use_dex (bool): Whether to use DEX for age estimation (fallback)
+            use_emonext (bool): Whether to use EmoNeXt for emotion detection
+            enable_gpu (bool): Whether to enable GPU acceleration for models
+            enable_tracking (bool): Whether to enable face tracking and temporal smoothing
         """
         self.model_selection = model_selection
         self.min_detection_confidence = min_detection_confidence
         self.max_faces = max_faces
         self.use_insightface = use_insightface and INSIGHTFACE_AVAILABLE
+        self.use_mivolo = use_mivolo and MIVOLO_AVAILABLE
+        self.use_dex = use_dex and DEX_AVAILABLE
+        self.use_emonext = use_emonext and EMONEXT_AVAILABLE
+        self.enable_gpu = enable_gpu
+        self.enable_tracking = enable_tracking and FACE_TRACKER_AVAILABLE
 
         # Initialize MediaPipe
         self.mp_face_detection = mp.solutions.face_detection
@@ -58,7 +104,40 @@ class FaceDetector:
             logger.error(f"Failed to initialize MediaPipe face detector: {str(e)}")
             raise
 
-        # Initialize InsightFace if available
+        # Initialize MiVOLO Age Estimator (primary)
+        self.mivolo_estimator = None
+        if self.use_mivolo:
+            try:
+                self.mivolo_estimator = MiVOLOAgeEstimator(enable_gpu=self.enable_gpu)
+                logger.info("MiVOLO age estimator initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize MiVOLO age estimator: {str(e)}")
+                self.use_mivolo = False
+                self.mivolo_estimator = None
+
+        # Initialize DEX Age Estimator (fallback)
+        self.dex_estimator = None
+        if self.use_dex:
+            try:
+                self.dex_estimator = DEXAgeEstimator(enable_gpu=self.enable_gpu)
+                logger.info("DEX age estimator initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize DEX age estimator: {str(e)}")
+                self.use_dex = False
+                self.dex_estimator = None
+
+        # Initialize EmoNeXt Emotion Detector
+        self.emonext_detector = None
+        if self.use_emonext:
+            try:
+                self.emonext_detector = EmoNeXtDetector(model_size="tiny", enable_gpu=self.enable_gpu)
+                logger.info("EmoNeXt emotion detector initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize EmoNeXt emotion detector: {str(e)}")
+                self.use_emonext = False
+                self.emonext_detector = None
+
+        # Initialize InsightFace as fallback if available
         self.insight_app = None
         if self.use_insightface:
             try:
@@ -80,7 +159,7 @@ class FaceDetector:
                     det_thresh=0.5  # Lower threshold for better detection of smaller faces
                 )
 
-                logger.info(f"InsightFace buffalo_l model initialized successfully:")
+                logger.info(f"InsightFace buffalo_l model initialized successfully (fallback):")
                 logger.info(f"  - Detection size: {det_size}")
                 logger.info(f"  - Modules: detection, genderage")
                 logger.info(f"  - Provider: CPUExecutionProvider")
@@ -89,10 +168,27 @@ class FaceDetector:
                 logger.warning(f"Failed to initialize InsightFace: {str(e)}, falling back to MediaPipe only")
                 self.use_insightface = False
                 self.insight_app = None
-    
+
+        # Initialize Face Tracker
+        self.face_tracker = None
+        if self.enable_tracking:
+            try:
+                self.face_tracker = FaceTracker(
+                    max_tracks=3,
+                    max_age_history=10,
+                    max_emotion_history=5,
+                    iou_threshold=0.3,
+                    max_missing_frames=10
+                )
+                logger.info("Face tracker initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize face tracker: {str(e)}")
+                self.enable_tracking = False
+                self.face_tracker = None
+
     def detect_faces(self, image: np.ndarray) -> List[Dict]:
         """
-        Detect faces in an image with enhanced analysis if InsightFace is available.
+        Detect faces in an image with enhanced analysis using DEX and EmoNeXt models.
 
         Args:
             image (np.ndarray): Input image in BGR format
@@ -101,15 +197,231 @@ class FaceDetector:
             List[Dict]: List of detected faces with bounding boxes, confidence, age, and emotion
         """
         try:
-            # Use InsightFace if available for better analysis
-            if self.use_insightface and self.insight_app is not None:
-                return self._detect_faces_insightface(image)
-            else:
-                return self._detect_faces_mediapipe(image)
+            # Use MediaPipe for face detection, then enhance with DEX and EmoNeXt
+            faces = self._detect_faces_mediapipe(image)
+
+            # Enhance faces with DEX age estimation and EmoNeXt emotion detection
+            if faces:
+                faces = self._enhance_faces_with_models(image, faces)
+
+            # Apply face tracking and temporal smoothing
+            if self.enable_tracking and self.face_tracker and faces:
+                faces = self.face_tracker.update_tracks(faces)
+                logger.debug(f"Face tracking applied: {len(faces)} tracked faces")
+
+            return faces
 
         except Exception as e:
             logger.error(f"Error detecting faces: {str(e)}")
             return []
+
+    def _enhance_faces_with_models(self, image: np.ndarray, faces: List[Dict]) -> List[Dict]:
+        """
+        Enhance detected faces with DEX age estimation and EmoNeXt emotion detection.
+        Optimized for real-time performance with max 3 faces processing.
+
+        Args:
+            image (np.ndarray): Original image
+            faces (List[Dict]): List of detected faces from MediaPipe
+
+        Returns:
+            List[Dict]: Enhanced faces with age and emotion data
+        """
+        enhanced_faces = []
+
+        # Limit to max 3 faces for performance (sort by confidence first)
+        faces_to_process = sorted(faces, key=lambda x: x.get('confidence', 0), reverse=True)[:3]
+
+        for face in faces_to_process:
+            try:
+                # Extract face region
+                x, y, w, h = face['bbox']
+                face_region = image[y:y+h, x:x+w]
+
+                if face_region.size == 0:
+                    enhanced_faces.append(face)
+                    continue
+
+                # Initialize enhanced face data
+                enhanced_face = face.copy()
+
+                # Age estimation using MiVOLO (primary)
+                age_estimated = False
+                if self.use_mivolo and self.mivolo_estimator:
+                    try:
+                        age_result = self.mivolo_estimator.estimate_age(face_region)
+                        enhanced_face.update({
+                            'age': age_result.get('age'),
+                            'age_confidence': age_result.get('confidence', 0.0),
+                            'age_range': age_result.get('age_range'),
+                            'gender': age_result.get('gender', 'unknown'),
+                            'gender_confidence': age_result.get('gender_confidence', 0.0)
+                        })
+                        age_estimated = True
+                        logger.debug(f"MiVOLO age estimation: {age_result.get('age')} years")
+                    except Exception as e:
+                        logger.error(f"Error in MiVOLO age estimation: {str(e)}")
+
+                # Fallback to DEX if MiVOLO failed
+                if not age_estimated and self.use_dex and self.dex_estimator:
+                    try:
+                        age_result = self.dex_estimator.estimate_age(face_region)
+                        enhanced_face.update({
+                            'age': age_result.get('age'),
+                            'age_confidence': age_result.get('confidence', 0.0),
+                            'age_range': age_result.get('age_range'),
+                            'gender': age_result.get('gender', 'unknown'),
+                            'gender_confidence': age_result.get('gender_confidence', 0.0)
+                        })
+                        age_estimated = True
+                        logger.debug(f"DEX age estimation (fallback): {age_result.get('age')} years")
+                    except Exception as e:
+                        logger.error(f"Error in DEX age estimation: {str(e)}")
+
+                # Final fallback if both failed
+                if not age_estimated:
+                    enhanced_face.update({
+                        'age': 25,
+                        'age_confidence': 0.3,
+                        'age_range': '(25-32)',
+                        'gender': 'unknown',
+                        'gender_confidence': 0.3
+                    })
+
+                # Emotion detection using EmoNeXt
+                if self.use_emonext and self.emonext_detector:
+                    try:
+                        emotion_result = self.emonext_detector.detect_emotion(face_region)
+                        enhanced_face.update({
+                            'dominant_emotion': emotion_result.get('dominant_emotion', 'neutral'),
+                            'emotion_confidence': emotion_result.get('confidence', 0.0),
+                            'emotions': emotion_result.get('emotions', {
+                                'neutral': 0.7,
+                                'happy': 0.1,
+                                'sad': 0.1,
+                                'angry': 0.05,
+                                'surprised': 0.05
+                            })
+                        })
+                    except Exception as e:
+                        logger.error(f"Error in EmoNeXt emotion detection: {str(e)}")
+                        # Use fallback values
+                        enhanced_face.update({
+                            'dominant_emotion': 'neutral',
+                            'emotion_confidence': 0.3,
+                            'emotions': {
+                                'neutral': 0.7,
+                                'happy': 0.1,
+                                'sad': 0.1,
+                                'angry': 0.05,
+                                'surprised': 0.05
+                            }
+                        })
+
+                # Fallback to InsightFace if DEX or EmoNeXt failed
+                if (not enhanced_face.get('age') or not enhanced_face.get('dominant_emotion')) and self.use_insightface and self.insight_app:
+                    try:
+                        insight_result = self._get_insightface_analysis(face_region)
+                        if not enhanced_face.get('age'):
+                            enhanced_face.update({
+                                'age': insight_result.get('age', 25),
+                                'age_confidence': insight_result.get('age_confidence', 0.5),
+                                'age_range': insight_result.get('age_range', '(25-32)'),
+                                'gender': insight_result.get('gender', 'unknown'),
+                                'gender_confidence': insight_result.get('gender_confidence', 0.5)
+                            })
+                        if not enhanced_face.get('dominant_emotion'):
+                            enhanced_face.update({
+                                'dominant_emotion': 'neutral',
+                                'emotion_confidence': 0.5,
+                                'emotions': {
+                                    'neutral': 0.5,
+                                    'happy': 0.2,
+                                    'sad': 0.1,
+                                    'angry': 0.1,
+                                    'surprised': 0.1
+                                }
+                            })
+                    except Exception as e:
+                        logger.error(f"Error in InsightFace fallback: {str(e)}")
+
+                enhanced_faces.append(enhanced_face)
+
+            except Exception as e:
+                logger.error(f"Error enhancing face: {str(e)}")
+                enhanced_faces.append(face)
+
+        return enhanced_faces
+
+    def _get_insightface_analysis(self, face_region: np.ndarray) -> Dict:
+        """
+        Get age and gender analysis from InsightFace for fallback.
+
+        Args:
+            face_region (np.ndarray): Face region image
+
+        Returns:
+            Dict: Analysis results from InsightFace
+        """
+        try:
+            # Convert BGR to RGB for InsightFace
+            rgb_image = cv2.cvtColor(face_region, cv2.COLOR_BGR2RGB)
+
+            # Perform analysis
+            faces_data = self.insight_app.get(rgb_image)
+
+            if faces_data:
+                face = faces_data[0]  # Use the first detected face
+
+                # Extract age
+                age = None
+                age_confidence = 0.0
+                if hasattr(face, 'age') and face.age is not None:
+                    raw_age = float(face.age)
+                    if 0 <= raw_age <= 120:
+                        age = int(round(raw_age))
+                        age_confidence = min(0.95, float(face.det_score) * 1.1)
+
+                # Extract gender
+                gender = None
+                gender_confidence = 0.0
+                if hasattr(face, 'gender') and face.gender is not None:
+                    gender = 'male' if face.gender == 1 else 'female'
+                    gender_confidence = min(0.95, float(face.det_score) * 1.05)
+
+                # Create age range
+                age_range = None
+                if age is not None:
+                    if age < 13:
+                        age_range = "0-12"
+                    elif age < 20:
+                        age_range = "13-19"
+                    elif age < 30:
+                        age_range = "20-29"
+                    elif age < 40:
+                        age_range = "30-39"
+                    elif age < 50:
+                        age_range = "40-49"
+                    elif age < 60:
+                        age_range = "50-59"
+                    elif age < 70:
+                        age_range = "60-69"
+                    else:
+                        age_range = "70+"
+
+                return {
+                    'age': age,
+                    'age_confidence': age_confidence,
+                    'age_range': age_range,
+                    'gender': gender,
+                    'gender_confidence': gender_confidence
+                }
+
+            return {}
+
+        except Exception as e:
+            logger.error(f"Error in InsightFace analysis: {str(e)}")
+            return {}
 
     def _detect_faces_insightface(self, image: np.ndarray) -> List[Dict]:
         """
@@ -269,26 +581,13 @@ class FaceDetector:
                     # Extract confidence score
                     confidence = detection.score[0] if detection.score else 0.0
 
-                    # Create face data with fallback values
+                    # Create face data with basic information (will be enhanced later)
                     face_data = {
                         'id': f'face_{i}',
                         'bbox': [x, y, w, h],
                         'confidence': float(confidence),
                         'center': [x + w // 2, y + h // 2],
-                        'area': w * h,
-                        'age': 25,  # Fallback age
-                        'gender': 'unknown',
-                        'age_confidence': 0.3,
-                        'gender_confidence': 0.3,
-                        'dominant_emotion': 'neutral',
-                        'emotion_confidence': 0.3,
-                        'emotions': {
-                            'neutral': 0.7,
-                            'happy': 0.1,
-                            'sad': 0.1,
-                            'angry': 0.05,
-                            'surprised': 0.05
-                        }
+                        'area': w * h
                     }
 
                     faces.append(face_data)

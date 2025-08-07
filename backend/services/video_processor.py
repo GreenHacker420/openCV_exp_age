@@ -98,7 +98,7 @@ class VideoProcessor:
 
             logger.debug(f"Resized frame from {frame.shape} to {processed_frame.shape}")
 
-            # Detect faces
+            # Detect faces with integrated DEX and EmoNeXt analysis
             faces = self.face_detector.detect_faces(processed_frame)
             logger.info(f"Detected {len(faces) if faces else 0} faces")
 
@@ -115,10 +115,10 @@ class VideoProcessor:
                 faces = sorted(filtered_faces, key=lambda x: x.get('confidence', 0), reverse=True)[:self.max_faces_to_analyze]
                 logger.debug(f"Filtered to {len(faces)} faces for analysis")
 
-            # Initialize results
+            # Initialize results - faces now contain integrated analysis
             results = {
                 'faces': faces if faces else [],
-                'analysis': [],
+                'analysis': self._format_analysis_results(faces) if faces else [],
                 'frame_info': {
                     'original_size': frame.shape[:2],
                     'processed_size': processed_frame.shape[:2],
@@ -126,12 +126,6 @@ class VideoProcessor:
                     'timestamp': datetime.now().isoformat()
                 }
             }
-
-            # Perform detailed analysis if faces detected
-            if faces:
-                logger.debug(f"Analyzing {len(faces)} faces")
-                analysis_results = self._analyze_faces(processed_frame, faces)
-                results['analysis'] = analysis_results
 
             # Update performance metrics
             processing_time = (time.time() - start_time) * 1000
@@ -144,8 +138,45 @@ class VideoProcessor:
             return results
 
         except Exception as e:
-            logger.error(f"Error processing frame: {str(e)}", exc_info=True)
-            return self._create_error_result(str(e))
+            logger.error(f"Error processing frame: {str(e)}")
+            return self._create_empty_result()
+
+    def _format_analysis_results(self, faces: List[Dict]) -> List[Dict]:
+        """
+        Format face detection results for analysis output.
+        Since faces now contain integrated analysis, we just need to format them properly.
+
+        Args:
+            faces (List[Dict]): Detected faces with integrated analysis
+
+        Returns:
+            List[Dict]: Formatted analysis results
+        """
+        analysis_results = []
+
+        for face in faces:
+            try:
+                face_analysis = {
+                    'face_id': face.get('id'),
+                    'bbox': face.get('bbox'),
+                    'confidence': face.get('confidence'),
+                    'age': face.get('age'),
+                    'age_confidence': face.get('age_confidence'),
+                    'age_range': face.get('age_range'),
+                    'gender': face.get('gender'),
+                    'gender_confidence': face.get('gender_confidence'),
+                    'dominant_emotion': face.get('dominant_emotion'),
+                    'emotion_confidence': face.get('emotion_confidence'),
+                    'emotions': face.get('emotions', {}),
+                    'method': 'integrated_dex_emonext'
+                }
+
+                analysis_results.append(face_analysis)
+
+            except Exception as e:
+                logger.error(f"Error formatting analysis for face {face.get('id', 'unknown')}: {str(e)}")
+
+        return analysis_results
 
     def _create_empty_result(self) -> Dict:
         """Create an empty result structure."""

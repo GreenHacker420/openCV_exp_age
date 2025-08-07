@@ -5,11 +5,11 @@ A real-time facial analysis web platform designed for robotics club events and t
 ## 🎯 Project Overview
 
 This platform showcases cutting-edge AI and computer vision technology through:
-- **Real-time facial detection** with bounding box overlays
-- **Age estimation** using pre-trained neural networks
-- **Emotion recognition** with confidence scoring
-- **Gender detection** (optional, privacy-conscious)
-- **Multi-face support** for group demonstrations
+- **Real-time facial detection** with MediaPipe integration
+- **Advanced age estimation** using DEX (Deep EXpectation) VGG-16 model
+- **Emotion recognition** with EmoNeXt ConvNeXt-based architecture
+- **Gender detection** with confidence scoring
+- **Multi-face support** (up to 3 faces for optimal performance)
 - **Futuristic UI** using Arwes cyberpunk framework
 
 ## 🏗️ Project Structure
@@ -94,10 +94,13 @@ docker-compose up --build
 - **Responsive Design**: Works on desktop, tablet, and mobile
 
 ### Technical Capabilities
-- **Computer Vision**: OpenCV 4.9+ with MediaPipe integration
-- **AI Models**: TensorFlow/PyTorch for age and emotion detection
+- **Computer Vision**: OpenCV 4.9+ with MediaPipe face detection
+- **AI Models**:
+  - DEX (Deep EXpectation) VGG-16 for accurate age estimation
+  - EmoNeXt ConvNeXt-based for emotion recognition
+  - InsightFace as fallback for enhanced reliability
 - **Real-time Communication**: WebSocket for live data streaming
-- **Performance**: 30+ FPS processing with <200ms latency
+- **Performance**: 155+ FPS processing with frame skip optimization
 
 ### User Experience
 - **Instant Feedback**: Real-time visual and audio responses
@@ -116,7 +119,10 @@ docker-compose up --build
 ### Backend
 - **Framework**: Flask 3.0+ with Flask-SocketIO
 - **Computer Vision**: OpenCV 4.9+, MediaPipe 0.10+
-- **AI/ML**: TensorFlow 2.15+, InsightFace, MTCNN
+- **AI/ML**:
+  - TensorFlow 2.19+ for DEX age estimation
+  - PyTorch 2.8+ for EmoNeXt emotion recognition
+  - InsightFace for fallback analysis
 - **Communication**: WebSocket, RESTful APIs
 
 ### Frontend

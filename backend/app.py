@@ -51,8 +51,6 @@ socketio = SocketIO(
 
 # Global services (initialized on startup)
 face_detector = None
-age_estimator = None
-emotion_detector = None
 video_processor = None
 
 # Performance metrics
@@ -66,34 +64,32 @@ metrics = {
 
 def initialize_services():
     """Initialize all AI services and models."""
-    global face_detector, age_estimator, emotion_detector, video_processor
-    
+    global face_detector, video_processor
+
     try:
         logger.info("Initializing AI services...")
-        
-        # Initialize face detection
-        face_detector = FaceDetector()
-        logger.info("Face detector initialized")
-        
-        # Initialize age estimation
-        age_estimator = AgeEstimator()
-        logger.info("Age estimator initialized")
-        
-        # Initialize emotion detection
-        emotion_detector = EmotionDetector()
-        logger.info("Emotion detector initialized")
-        
-        # Initialize video processor
+
+        # Initialize face detection with integrated MiVOLO and EmoNeXt models
+        face_detector = FaceDetector(
+            use_mivolo=True,        # Enable MiVOLO age estimation (primary)
+            use_dex=True,           # Enable DEX age estimation (fallback)
+            use_emonext=True,       # Enable EmoNeXt emotion detection
+            use_insightface=True,   # Keep InsightFace as fallback
+            enable_tracking=True    # Enable face tracking and temporal smoothing
+        )
+        logger.info("Face detector with integrated MiVOLO and EmoNeXt initialized")
+
+        # Initialize video processor with the integrated face detector
         video_processor = VideoProcessor(
             face_detector=face_detector,
-            age_estimator=age_estimator,
-            emotion_detector=emotion_detector
+            age_estimator=None,     # Not needed anymore - integrated in face_detector
+            emotion_detector=None   # Not needed anymore - integrated in face_detector
         )
         logger.info("Video processor initialized")
-        
+
         logger.info("All AI services initialized successfully")
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize services: {str(e)}")
         return False
@@ -108,8 +104,10 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'services': {
             'face_detector': face_detector is not None,
-            'age_estimator': age_estimator is not None,
-            'emotion_detector': emotion_detector is not None,
+            'mivolo_age_estimator': face_detector.use_mivolo if face_detector else False,
+            'dex_age_estimator': face_detector.use_dex if face_detector else False,
+            'emonext_detector': face_detector.use_emonext if face_detector else False,
+            'insightface_fallback': face_detector.use_insightface if face_detector else False,
             'video_processor': video_processor is not None
         },
         'metrics': metrics
@@ -127,17 +125,33 @@ def get_models_info():
             'loaded': face_detector is not None
         },
         'age_estimation': {
-            'name': 'InsightFace ArcFace',
-            'version': '0.7.3',
-            'loaded': age_estimator is not None
+            'name': 'MiVOLO (Multi-input Transformer)',
+            'version': '1.0.0',
+            'loaded': face_detector.use_mivolo if face_detector else False,
+            'accuracy': '3.65 MAE on Lagenda dataset',
+            'fallback': {
+                'name': 'DEX (Deep EXpectation) VGG-16',
+                'version': '1.0.0',
+                'loaded': face_detector.use_dex if face_detector else False
+            },
+            'final_fallback': {
+                'name': 'InsightFace ArcFace',
+                'version': '0.7.3',
+                'loaded': face_detector.use_insightface if face_detector else False
+            }
         },
         'emotion_recognition': {
-            'name': 'Vision Transformer FER2013+',
-            'version': '2.15.0',
-            'loaded': emotion_detector is not None
+            'name': 'EmoNeXt ConvNeXt-based',
+            'version': '1.0.0',
+            'loaded': face_detector.use_emonext if face_detector else False,
+            'fallback': {
+                'name': 'Basic Heuristic',
+                'version': '1.0.0',
+                'loaded': True
+            }
         }
     }
-    
+
     return jsonify(models_info)
 
 @app.route('/api/analyze', methods=['POST'])
@@ -197,8 +211,7 @@ def handle_connect():
         'server_time': datetime.now().isoformat(),
         'services_ready': all([
             face_detector is not None,
-            age_estimator is not None,
-            emotion_detector is not None
+            video_processor is not None
         ])
     })
 

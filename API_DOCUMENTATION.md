@@ -31,8 +31,9 @@ Check the health status of all backend services.
   "timestamp": "2024-01-15T10:30:00Z",
   "services": {
     "face_detector": true,
-    "age_estimator": true,
-    "emotion_detector": true,
+    "dex_age_estimator": true,
+    "emonext_detector": true,
+    "insightface_fallback": true,
     "video_processor": true
   },
   "metrics": {
@@ -98,22 +99,32 @@ Get information about all loaded AI models.
       "last_updated": "2024-01-15T10:30:00Z"
     },
     "age_estimation": {
-      "name": "InsightFace ArcFace",
-      "version": "0.7.3",
+      "name": "DEX (Deep EXpectation) VGG-16",
+      "version": "1.0.0",
       "loaded": true,
-      "description": "Age estimation using deep learning models",
-      "capabilities": ["age_estimation"],
+      "description": "Advanced age estimation using deep expectation regression",
+      "capabilities": ["age_estimation", "gender_detection"],
       "status": "ready",
-      "last_updated": "2024-01-15T10:30:00Z"
+      "last_updated": "2024-01-15T10:30:00Z",
+      "fallback": {
+        "name": "InsightFace ArcFace",
+        "version": "0.7.3",
+        "loaded": true
+      }
     },
     "emotion_recognition": {
-      "name": "Vision Transformer FER2013+",
-      "version": "2.15.0",
+      "name": "EmoNeXt ConvNeXt-based",
+      "version": "1.0.0",
       "loaded": true,
-      "description": "Emotion recognition using computer vision",
+      "description": "State-of-the-art emotion recognition using ConvNeXt architecture",
       "capabilities": ["emotion_detection"],
       "status": "ready",
-      "last_updated": "2024-01-15T10:30:00Z"
+      "last_updated": "2024-01-15T10:30:00Z",
+      "fallback": {
+        "name": "Basic Heuristic",
+        "version": "1.0.0",
+        "loaded": true
+      }
     }
   },
   "total_models": 3,
