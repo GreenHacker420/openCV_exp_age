@@ -1,19 +1,29 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { Camera, Users, Brain, Activity, Clock, TrendingUp, AlertCircle, Settings } from 'lucide-react'
-import { useWebSocket, useVideoFrameSender, useAnalysisReceiver } from '@/hooks/use-websocket'
+import { Camera, Users, Brain, Activity, Clock, TrendingUp, AlertCircle, Settings, Play, Pause } from 'lucide-react'
+import { io, Socket } from 'socket.io-client'
 import { getWebSocketUrl } from '@/lib/config'
 import FaceAnalysisOverlay from '@/components/analysis/FaceAnalysisOverlay'
 
-interface AnalysisResult {
-  face_id: string
+interface Face {
+  id: string
+  bbox: number[]
   confidence: number
   age?: number
   gender?: string
   dominant_emotion?: string
-  bbox: number[]
+  emotion_confidence?: number
+  emotions?: Record<string, number>
+}
+
+interface AnalysisResult {
+  faces: Face[]
+  analysis: {
+    total_faces: number
+    processing_time: number
+  }
 }
 
 export default function HomePage() {
@@ -27,7 +37,7 @@ export default function HomePage() {
     return <LoadingPage onComplete={handleLoadingComplete} />
   }
 
-  return <MainApp />
+  return <IRISMainApp />
 }
 
 function LoadingPage({ onComplete }: { onComplete: () => void }) {
@@ -38,46 +48,33 @@ function LoadingPage({ onComplete }: { onComplete: () => void }) {
       setProgress(prev => {
         if (prev >= 100) {
           clearInterval(interval)
-          setTimeout(onComplete, 1000)
+          setTimeout(onComplete, 500)
           return 100
         }
         return prev + 2
       })
-    }, 100)
+    }, 50)
 
     return () => clearInterval(interval)
   }, [onComplete])
 
   return (
-    <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
+    <div className="min-h-screen bg-black flex items-center justify-center">
       <div className="text-center space-y-8">
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1 }}
+          className="relative"
         >
-          <h1 className="text-6xl font-bold text-cyan-400 tracking-wider">
+          <div className="text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-cyan-600">
             IRIS
-          </h1>
-          <p className="text-xl text-cyan-300 mt-2">
-            Robotics Club
-          </p>
-        </motion.div>
-
-        <motion.div
-          className="w-64 h-64 mx-auto relative"
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 1, delay: 0.5 }}
-        >
+          </div>
+          <div className="text-sm text-cyan-300 mt-2 tracking-widest">
+            INTELLIGENT RECOGNITION & IDENTIFICATION SYSTEM
+          </div>
           <motion.div
-            className="absolute inset-0 rounded-full border-4 border-cyan-400"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-          />
-          
-          <motion.div
-            className="absolute inset-8 rounded-full bg-gradient-to-r from-cyan-400 to-cyan-600"
+            className="absolute -inset-4 border border-cyan-400/30 rounded-lg"
             animate={{ 
               scale: [0.8, 1.2, 0.8],
               opacity: [0.8, 1, 0.8]
@@ -108,11 +105,18 @@ function LoadingPage({ onComplete }: { onComplete: () => void }) {
   )
 }
 
-function MainApp() {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+function IRISMainApp() {
+  // State management
+  const [socket, setSocket] = useState<Socket | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
   const [frameCount, setFrameCount] = useState(0)
+  const [faces, setFaces] = useState<Face[]>([])
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected')
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([])
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('')
+  const [cameraError, setCameraError] = useState<string>('')
+  const [isInitializing, setIsInitializing] = useState(false)
   const [sessionStats, setSessionStats] = useState({
     totalFaces: 0,
     averageAge: 0,
@@ -121,446 +125,665 @@ function MainApp() {
     startTime: Date.now()
   })
 
-  // WebSocket connection
-  const {
-    socket,
-    isConnected: wsConnected,
-    error: wsError
-  } = useWebSocket(getWebSocketUrl(), {
-    autoConnect: true,
-    onConnect: () => console.log('Main page: WebSocket connected'),
-    onDisconnect: () => console.log('Main page: WebSocket disconnected'),
-    onError: (error) => console.error('Main page: WebSocket error:', error)
-  })
+  // Refs
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const captureIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const initializationRef = useRef<boolean>(false)
 
-  // Video frame sender
-  const { sendFrame } = useVideoFrameSender(socket, wsConnected)
+  // Initialize WebSocket connection
+  const initializeWebSocket = useCallback(() => {
+    if (socket) {
+      socket.disconnect()
+    }
 
-  // Analysis results receiver
-  const {
-    faces: backendFaces,
-    analysis: backendAnalysis,
-    metrics: backendMetrics
-  } = useAnalysisReceiver(socket)
+    setConnectionStatus('connecting')
+    const newSocket = io(getWebSocketUrl())
 
-  // Start camera
-  const startCamera = async () => {
+    newSocket.on('connect', () => {
+      console.log('WebSocket connected')
+      setConnectionStatus('connected')
+    })
+
+    newSocket.on('connected', (data) => {
+      console.log('Server connected event:', data)
+    })
+
+    newSocket.on('face_detected', (data) => {
+      console.log('Face detected:', data)
+      if (data.faces) {
+        setFaces(data.faces)
+      }
+    })
+
+    newSocket.on('analysis_complete', (data) => {
+      console.log('Analysis complete:', data)
+      if (data.faces) {
+        setFaces(data.faces)
+        updateSessionStats(data.faces)
+      }
+    })
+
+    newSocket.on('no_faces_detected', (data) => {
+      console.log('No faces detected:', data)
+      setFaces([]) // Clear any existing faces
+    })
+
+    newSocket.on('error', (data) => {
+      console.error('Server error:', data, 'Type:', typeof data, 'Keys:', Object.keys(data || {}))
+      if (data && typeof data === 'object' && data.message) {
+        setCameraError(`Server error: ${data.message}`)
+      } else if (data && typeof data === 'string') {
+        setCameraError(`Server error: ${data}`)
+      } else {
+        console.warn('Received empty or malformed error object:', data)
+        // Don't set camera error for empty objects, might be a Socket.IO internal error
+      }
+    })
+
+    newSocket.on('disconnect', () => {
+      console.log('WebSocket disconnected')
+      setConnectionStatus('disconnected')
+    })
+
+    newSocket.on('connect_error', (error) => {
+      console.error('WebSocket connection error:', error)
+      setConnectionStatus('error')
+    })
+
+    setSocket(newSocket)
+  }, [socket])
+
+  // Enumerate available cameras
+  const enumerateCameras = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-        audio: false
-      })
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter(device => device.kind === 'videoinput')
+      setAvailableCameras(videoDevices)
+
+      // Set default camera if none selected
+      if (!selectedCameraId && videoDevices.length > 0 && videoDevices[0]) {
+        setSelectedCameraId(videoDevices[0].deviceId)
+      }
+
+      console.log('Available cameras:', videoDevices.map(d => ({ id: d.deviceId, label: d.label })))
+    } catch (error) {
+      console.error('Failed to enumerate cameras:', error)
+      setCameraError('Failed to access camera devices')
+    }
+  }, [selectedCameraId])
+
+  // Update session statistics
+  const updateSessionStats = useCallback((detectedFaces: Face[]) => {
+    setSessionStats(prev => {
+      const ages = detectedFaces.filter(f => f.age).map(f => f.age!)
+      const emotions = detectedFaces.map(f => f.dominant_emotion).filter(Boolean)
+
+      return {
+        ...prev,
+        totalFaces: Math.max(prev.totalFaces, detectedFaces.length),
+        averageAge: ages.length > 0 ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : prev.averageAge,
+        dominantEmotion: emotions.length > 0 ? emotions[emotions.length - 1] || prev.dominantEmotion : prev.dominantEmotion,
+        sessionDuration: Math.floor((Date.now() - prev.startTime) / 1000)
+      }
+    })
+  }, [])
+
+  // Start camera with proper initialization and error handling
+  const startCamera = useCallback(async (cameraId?: string) => {
+    // Prevent multiple simultaneous initializations
+    if (initializationRef.current) {
+      console.log('Camera initialization already in progress')
+      return
+    }
+
+    try {
+      initializationRef.current = true
+      setIsInitializing(true)
+      setCameraError('')
+      setCameraReady(false)
+
+      console.log('Starting camera with ID:', cameraId || selectedCameraId || 'default')
+
+      // Stop existing stream first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+        streamRef.current = null
+      }
+
+      // Clear video source to prevent play() interruption
+      if (videoRef.current) {
+        videoRef.current.srcObject = null
+        videoRef.current.load() // Reset video element
+      }
+
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        ...(cameraId || selectedCameraId
+          ? { deviceId: { exact: cameraId || selectedCameraId } }
+          : { facingMode: 'user' }),
+      }
+
+      const constraints: MediaStreamConstraints = {
+        video: videoConstraints,
+        audio: false,
+      }
+
+      console.log('Requesting camera with constraints:', constraints)
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-        setIsStreaming(true)
-        console.log('Main page: Camera started successfully')
+        // Set up event handlers before setting srcObject
+        const video = videoRef.current
+
+        const handleLoadedMetadata = () => {
+          console.log(`Video metadata loaded: ${video.videoWidth}x${video.videoHeight}`)
+          setCameraReady(true)
+          setIsInitializing(false)
+        }
+
+        const handleCanPlay = () => {
+          console.log('Video can play')
+        }
+
+        const handleError = (e: Event) => {
+          console.error('Video error:', e)
+          setCameraError('Video playback error')
+          setIsInitializing(false)
+        }
+
+        // Remove existing event listeners
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+        video.removeEventListener('canplay', handleCanPlay)
+        video.removeEventListener('error', handleError)
+
+        // Add new event listeners
+        video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true })
+        video.addEventListener('canplay', handleCanPlay, { once: true })
+        video.addEventListener('error', handleError, { once: true })
+
+        // Set the stream and play
+        video.srcObject = stream
+        streamRef.current = stream
+
+        // Use a small delay to ensure srcObject is set
+        setTimeout(async () => {
+          try {
+            await video.play()
+            setIsStreaming(true)
+            console.log('Camera started successfully')
+          } catch (playError) {
+            console.error('Play error:', playError)
+            setCameraError('Failed to start video playback')
+            setIsInitializing(false)
+          }
+        }, 100)
       }
     } catch (error) {
-      console.error('Main page: Failed to start camera:', error)
+      console.error('Failed to start camera:', error)
+      setCameraError(error instanceof Error ? error.message : 'Camera access failed')
+      setIsInitializing(false)
+    } finally {
+      initializationRef.current = false
     }
-  }
+  }, [selectedCameraId])
 
-  // Capture and send frame
-  const captureFrame = () => {
-    if (!videoRef.current || !canvasRef.current || !wsConnected) return
+  // Stop camera
+  const stopCamera = useCallback(() => {
+    initializationRef.current = false
+    setIsInitializing(false)
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+      videoRef.current.load() // Reset video element
+    }
+    setIsStreaming(false)
+    setCameraReady(false)
+    setCameraError('')
+    console.log('Camera stopped')
+  }, [])
+
+  // Switch camera
+  const switchCamera = useCallback(async (cameraId: string) => {
+    console.log('Switching to camera:', cameraId)
+    setSelectedCameraId(cameraId)
+
+    if (isStreaming) {
+      stopCamera()
+      // Small delay to ensure cleanup is complete
+      setTimeout(() => {
+        startCamera(cameraId)
+      }, 200)
+    }
+  }, [isStreaming, stopCamera, startCamera])
+
+  // Capture and send frame with proper validation
+  const captureFrame = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !socket || !cameraReady) {
+      return
+    }
 
     const video = videoRef.current
     const canvas = canvasRef.current
+    if (!video || !canvas) return
     const ctx = canvas.getContext('2d')
+    if (!ctx || video.videoWidth === 0 || video.videoHeight === 0) {
+      console.log('Video not ready for capture:', video?.videoWidth, 'x', video?.videoHeight)
+      return
+    }
 
-    if (!ctx || video.videoWidth === 0) return
-
-    // Set canvas size
+    // Set canvas size to match video
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
     // Draw video frame to canvas
-    ctx.drawImage(video, 0, 0)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
     // Convert to base64
-    const base64Data = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
+    const dataURL = canvas.toDataURL('image/jpeg', 0.8)
+    const base64Data = dataURL.split(',')[1]
 
-    if (base64Data) {
-      sendFrame(base64Data, 100)
+    if (base64Data && base64Data.length > 100) { // Ensure we have actual image data
+      socket.emit('video_frame', {
+        data: dataURL,
+        timestamp: Date.now()
+      })
+      
       setFrameCount(prev => prev + 1)
+      console.log(`Frame ${frameCount + 1} sent: ${base64Data.length} bytes`)
+    } else {
+      console.log('Invalid frame data, skipping')
+    }
+  }, [socket, cameraReady, frameCount])
+
+  // Start/stop frame capture
+  const startCapture = useCallback(() => {
+    if (captureIntervalRef.current) {
+      clearInterval(captureIntervalRef.current)
+    }
+    
+    captureIntervalRef.current = setInterval(captureFrame, 200) // 5 FPS
+    console.log('Frame capture started')
+  }, [captureFrame])
+
+  const stopCapture = useCallback(() => {
+    if (captureIntervalRef.current) {
+      clearInterval(captureIntervalRef.current)
+      captureIntervalRef.current = null
+    }
+    console.log('Frame capture stopped')
+  }, [])
+
+  // Initialize WebSocket and enumerate cameras on mount
+  useEffect(() => {
+    initializeWebSocket()
+    enumerateCameras()
+
+    return () => {
+      if (socket) {
+        socket.disconnect()
+      }
+    }
+  }, [])
+
+  // Start camera when cameras are enumerated
+  useEffect(() => {
+    if (availableCameras.length > 0 && selectedCameraId && !isStreaming && !isInitializing) {
+      startCamera()
+    }
+
+    return () => {
+      stopCamera()
+      stopCapture()
+    }
+  }, [availableCameras, selectedCameraId])
+
+  // Start capture when camera is ready and WebSocket is connected
+  useEffect(() => {
+    if (cameraReady && connectionStatus === 'connected' && isStreaming) {
+      startCapture()
+    } else {
+      stopCapture()
+    }
+  }, [cameraReady, connectionStatus, isStreaming, startCapture, stopCapture])
+
+  // Connection status indicator
+  const getStatusColor = () => {
+    switch (connectionStatus) {
+      case 'connected': return isStreaming && cameraReady ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'
+      case 'connecting': return 'bg-yellow-400 animate-pulse'
+      case 'error': return 'bg-red-400'
+      default: return 'bg-gray-400'
     }
   }
 
-  // Auto-capture frames
-  useEffect(() => {
-    if (!isStreaming) return
-
-    const interval = setInterval(captureFrame, 200) // 5 FPS
-    return () => clearInterval(interval)
-  }, [isStreaming, wsConnected])
-
-  // Auto-start camera
-  useEffect(() => {
-    startCamera()
-  }, [])
-
-  // Update session stats
-  useEffect(() => {
-    if (backendAnalysis.length > 0) {
-      setSessionStats(prev => {
-        const analysis = backendAnalysis as AnalysisResult[]
-        const ages = analysis.filter(a => a.age).map(a => a.age!)
-        const emotions = analysis.map(a => a.dominant_emotion).filter(Boolean)
-
-        return {
-          ...prev,
-          totalFaces: Math.max(prev.totalFaces, backendFaces.length),
-          averageAge: ages.length > 0 ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : prev.averageAge,
-          dominantEmotion: emotions.length > 0 ? emotions[emotions.length - 1] || prev.dominantEmotion : prev.dominantEmotion,
-          sessionDuration: Math.floor((Date.now() - prev.startTime) / 1000)
-        }
-      })
-    }
-  }, [backendAnalysis, backendFaces])
+  const getStatusText = () => {
+    if (connectionStatus === 'error') return 'ERROR'
+    if (connectionStatus === 'connecting') return 'CONNECTING'
+    if (connectionStatus === 'connected' && isStreaming && cameraReady) return 'LIVE ANALYSIS'
+    if (connectionStatus === 'connected' && isStreaming) return 'CAMERA ONLY'
+    return 'OFFLINE'
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <header className="p-6 border-b border-cyan-400/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold text-cyan-400">IRIS</h1>
-            <span className="text-cyan-300/60">|</span>
-            <span className="text-cyan-300">Facial Analysis Platform</span>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                wsConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
-              }`} />
-              <span className="text-xs text-cyan-400">
-                {wsConnected ? 'CONNECTED' : 'OFFLINE'}
-              </span>
+      {/* Header */}
+      <header className="border-b border-cyan-400/30 bg-black/90 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-cyan-600">
+                IRIS
+              </div>
+              <div className="text-sm text-cyan-300 hidden sm:block">
+                Intelligent Recognition & Identification System
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                isStreaming ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
-              }`} />
-              <span className="text-xs text-cyan-400">
-                {isStreaming ? 'LIVE' : 'CAMERA OFF'}
-              </span>
+
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className={`w-3 h-3 rounded-full ${getStatusColor()}`}></div>
+                <span className="text-sm font-mono text-cyan-300">{getStatusText()}</span>
+              </div>
+
+              {/* Camera Selection */}
+              {availableCameras.length > 1 && (
+                <div className="flex items-center space-x-2">
+                  <Camera className="w-4 h-4 text-cyan-300" />
+                  <select
+                    value={selectedCameraId}
+                    onChange={(e) => switchCamera(e.target.value)}
+                    className="bg-gray-800 border border-cyan-400/30 rounded px-2 py-1 text-sm text-cyan-300 focus:outline-none focus:border-cyan-400"
+                    disabled={isInitializing}
+                  >
+                    {availableCameras.map((camera, index) => (
+                      <option key={camera.deviceId} value={camera.deviceId}>
+                        {camera.label || `Camera ${index + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-2 text-sm text-cyan-300">
+                <Activity className="w-4 h-4" />
+                <span>Frames: {frameCount}</span>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Camera Feed Section */}
-          <div className="lg:col-span-3">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.8 }}
-              className="relative bg-black border-2 border-cyan-400/30 rounded-lg overflow-hidden h-96"
-            >
-              {/* Corner decorations */}
-              <div className="absolute top-2 left-2 w-4 h-4 border-l-2 border-t-2 border-cyan-400 z-20" />
-              <div className="absolute top-2 right-2 w-4 h-4 border-r-2 border-t-2 border-cyan-400 z-20" />
-              <div className="absolute bottom-2 left-2 w-4 h-4 border-l-2 border-b-2 border-cyan-400 z-20" />
-              <div className="absolute bottom-2 right-2 w-4 h-4 border-r-2 border-b-2 border-cyan-400 z-20" />
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-              {/* Status indicator */}
-              <div className="absolute top-4 left-4 flex items-center space-x-2 bg-black/60 px-3 py-1 rounded-full z-20">
-                <div className={`w-2 h-2 rounded-full ${
-                  wsError ? 'bg-red-400' :
-                  isStreaming && wsConnected ? 'bg-green-400 animate-pulse' :
-                  'bg-yellow-400'
-                }`} />
-                <span className="text-xs text-white">
-                  {wsError ? 'ERROR' :
-                   isStreaming && wsConnected ? 'LIVE ANALYSIS' :
-                   isStreaming ? 'CAMERA ONLY' : 'OFFLINE'}
-                </span>
+          {/* Camera Feed - Main Column */}
+          <div className="lg:col-span-2">
+            <div className="bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-cyan-300 flex items-center">
+                  <Camera className="w-5 h-5 mr-2" />
+                  Live Camera Feed
+                </h2>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={isStreaming ? stopCamera : () => startCamera()}
+                    disabled={isInitializing}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isStreaming
+                        ? 'bg-red-600 hover:bg-red-700 text-white'
+                        : 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                    }`}
+                  >
+                    {isInitializing ? (
+                      <>
+                        <div className="w-4 h-4 inline mr-1 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                        Starting...
+                      </>
+                    ) : isStreaming ? (
+                      <>
+                        <Pause className="w-4 h-4 inline mr-1" />
+                        Stop
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 inline mr-1" />
+                        Start
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* Performance metrics */}
-              {isStreaming && wsConnected && (
-                <div className="absolute top-4 right-4 bg-black/60 px-3 py-1 rounded-full z-20">
-                  <span className="text-xs text-cyan-400">
-                    {backendFaces.length} faces | {frameCount} frames
-                  </span>
-                </div>
-              )}
+              <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: '4/3' }}>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
 
-              {/* Video container */}
-              <div className="relative w-full h-full">
-                {!isStreaming ? (
-                  // Camera off state
-                  <div className="flex items-center justify-center h-full">
+                {/* Face Analysis Overlay */}
+                {faces.length > 0 && (
+                  <FaceAnalysisOverlay
+                    faces={faces}
+                    videoElement={videoRef.current}
+                  />
+                )}
+
+                {/* Camera Status Overlay */}
+                {!isStreaming && !isInitializing && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                     <div className="text-center">
-                      <motion.div
-                        animate={{
-                          scale: [1, 1.1, 1],
-                          opacity: [0.5, 1, 0.5]
-                        }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                      >
-                        <Camera className="w-16 h-16 text-cyan-400 mx-auto mb-4" />
-                      </motion.div>
-                      <p className="text-cyan-400 mb-2">Camera Feed</p>
-                      <p className="text-sm text-neutral-400 mb-4">
-                        Initializing camera access...
+                      <Camera className="w-16 h-16 text-cyan-400 mx-auto mb-4" />
+                      <p className="text-cyan-300 text-lg">Camera Offline</p>
+                      <p className="text-gray-400 text-sm mt-2">Click Start to begin analysis</p>
+                      {availableCameras.length === 0 && (
+                        <p className="text-yellow-400 text-sm mt-2">No cameras detected</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading Overlay */}
+                {(isInitializing || (isStreaming && !cameraReady)) && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto mb-4"></div>
+                      <p className="text-cyan-300">
+                        {isInitializing ? 'Starting Camera...' : 'Initializing Camera...'}
                       </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Overlay */}
+                {cameraError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                    <div className="text-center">
+                      <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                      <p className="text-red-400 text-lg">Camera Error</p>
+                      <p className="text-gray-400 text-sm mt-2 max-w-md">{cameraError}</p>
                       <button
-                        onClick={startCamera}
-                        className="px-4 py-2 bg-cyan-400/20 hover:bg-cyan-400/30 border border-cyan-400 rounded text-cyan-400 transition-colors"
+                        onClick={() => {
+                          setCameraError('')
+                          startCamera()
+                        }}
+                        className="mt-4 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-sm"
                       >
-                        <Camera className="w-4 h-4 mr-2 inline" />
-                        Retry Camera
+                        Retry
                       </button>
                     </div>
                   </div>
-                ) : (
-                  // Active camera state
-                  <>
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-
-                    {/* Real-time face analysis overlay */}
-                    <FaceAnalysisOverlay
-                      faces={backendFaces}
-                      videoRef={videoRef}
-                      className="absolute inset-0"
-                    />
-
-                    {/* Scanning effect */}
-                    {wsConnected && (
-                      <motion.div
-                        className="absolute inset-0 pointer-events-none z-10"
-                        style={{
-                          background: 'linear-gradient(90deg, transparent 0%, rgba(0, 248, 255, 0.1) 50%, transparent 100%)'
-                        }}
-                        animate={{ x: ['-100%', '100%'] }}
-                        transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-                      />
-                    )}
-                  </>
-                )}
-
-                {/* Error state */}
-                {wsError && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-30">
-                    <div className="text-center text-red-400">
-                      <AlertCircle className="w-12 h-12 mx-auto mb-4" />
-                      <p className="mb-2">Connection Error</p>
-                      <p className="text-sm text-red-300">
-                        {wsError.message || 'Failed to connect to analysis server'}
-                      </p>
-                    </div>
-                  </div>
                 )}
               </div>
-            </motion.div>
+
+              {/* Camera Info */}
+              {isStreaming && cameraReady && videoRef.current && (
+                <div className="mt-4 text-sm text-gray-400 flex justify-between">
+                  <span>Resolution: {videoRef.current.videoWidth}x{videoRef.current.videoHeight}</span>
+                  <span>FPS: ~5</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Insights Dashboard */}
-          <div className="lg:col-span-1">
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8 }}
-              className="bg-black/60 border border-cyan-400/30 rounded-lg p-6 backdrop-blur-sm h-96 overflow-y-auto"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-cyan-400">Live Analysis</h2>
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    backendFaces.length > 0 ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
-                  }`} />
-                  <span className="text-xs text-cyan-300">
-                    {backendFaces.length > 0 ? 'ANALYZING' : 'STANDBY'}
+          {/* Statistics Panel */}
+          <div className="space-y-6">
+
+            {/* Session Stats */}
+            <div className="bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4">
+              <h3 className="text-lg font-semibold text-cyan-300 mb-4 flex items-center">
+                <TrendingUp className="w-5 h-5 mr-2" />
+                Session Statistics
+              </h3>
+
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Total Faces:</span>
+                  <span className="text-white font-mono">{sessionStats.totalFaces}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Average Age:</span>
+                  <span className="text-white font-mono">
+                    {sessionStats.averageAge > 0 ? `${sessionStats.averageAge} years` : 'N/A'}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Dominant Emotion:</span>
+                  <span className="text-white font-mono capitalize">{sessionStats.dominantEmotion}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Session Time:</span>
+                  <span className="text-white font-mono">
+                    {Math.floor(sessionStats.sessionDuration / 60)}:{(sessionStats.sessionDuration % 60).toString().padStart(2, '0')}
                   </span>
                 </div>
               </div>
+            </div>
 
-              {backendFaces.length === 0 ? (
-                // Standby state
-                <div className="text-center py-8 text-cyan-300/60">
-                  <div className="w-12 h-12 mx-auto mb-4 opacity-50">
-                    <Users className="w-full h-full" />
-                  </div>
-                  <p>No faces detected</p>
-                  <p className="text-xs mt-2">Position yourself in front of the camera</p>
-                </div>
+            {/* Current Faces */}
+            <div className="bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4">
+              <h3 className="text-lg font-semibold text-cyan-300 mb-4 flex items-center">
+                <Users className="w-5 h-5 mr-2" />
+                Detected Faces ({faces.length})
+              </h3>
+
+              {faces.length === 0 ? (
+                <p className="text-gray-400 text-sm">No faces detected</p>
               ) : (
-                // Active analysis state
-                <div className="space-y-6">
-                  {/* Current Detection */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-cyan-300 mb-3 flex items-center">
-                      <Activity className="w-4 h-4 mr-2" />
-                      Live Detection
-                    </h3>
-
-                    <div className="space-y-3">
-                      {(backendAnalysis as AnalysisResult[]).slice(0, 3).map((result, index) => (
-                        <motion.div
-                          key={result.face_id || index}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="bg-cyan-400/10 rounded-lg p-3 border border-cyan-400/20"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-cyan-300">
-                              Face {index + 1}
-                            </span>
-                            <span className="text-xs text-cyan-400">
-                              {Math.round(result.confidence * 100)}%
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {result.age && (
-                              <div>
-                                <span className="text-cyan-300/60">Age:</span>
-                                <span className="text-cyan-300 ml-1">{result.age}</span>
-                              </div>
-                            )}
-                            {result.gender && (
-                              <div>
-                                <span className="text-cyan-300/60">Gender:</span>
-                                <span className="text-cyan-300 ml-1 capitalize">{result.gender}</span>
-                              </div>
-                            )}
-                            {result.dominant_emotion && (
-                              <div className="col-span-2">
-                                <span className="text-cyan-300/60">Emotion:</span>
-                                <span className="text-cyan-300 ml-1 capitalize">
-                                  {result.dominant_emotion}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </motion.div>
-                      ))}
-
-                      {backendAnalysis.length > 3 && (
-                        <div className="text-center text-xs text-cyan-300/60">
-                          +{backendAnalysis.length - 3} more faces detected
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Session Statistics */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-cyan-300 mb-3 flex items-center">
-                      <TrendingUp className="w-4 h-4 mr-2" />
-                      Session Stats
-                    </h3>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-cyan-400/10 rounded-lg p-3 border border-cyan-400/20">
-                        <div className="flex items-center justify-between">
-                          <Users className="w-4 h-4 text-cyan-400" />
-                          <span className="text-lg font-bold text-cyan-300">
-                            {sessionStats.totalFaces}
-                          </span>
-                        </div>
-                        <p className="text-xs text-cyan-300/60 mt-1">Total Faces</p>
-                      </div>
-
-                      <div className="bg-cyan-400/10 rounded-lg p-3 border border-cyan-400/20">
-                        <div className="flex items-center justify-between">
-                          <Clock className="w-4 h-4 text-cyan-400" />
-                          <span className="text-lg font-bold text-cyan-300">
-                            {Math.floor(sessionStats.sessionDuration / 60)}:{(sessionStats.sessionDuration % 60).toString().padStart(2, '0')}
-                          </span>
-                        </div>
-                        <p className="text-xs text-cyan-300/60 mt-1">Duration</p>
-                      </div>
-
-                      {sessionStats.averageAge > 0 && (
-                        <div className="bg-cyan-400/10 rounded-lg p-3 border border-cyan-400/20">
-                          <div className="flex items-center justify-between">
-                            <Brain className="w-4 h-4 text-cyan-400" />
-                            <span className="text-lg font-bold text-cyan-300">
-                              {sessionStats.averageAge}
-                            </span>
-                          </div>
-                          <p className="text-xs text-cyan-300/60 mt-1">Avg Age</p>
-                        </div>
-                      )}
-
-                      <div className="bg-cyan-400/10 rounded-lg p-3 border border-cyan-400/20">
-                        <div className="flex items-center justify-between">
-                          <Activity className="w-4 h-4 text-cyan-400" />
-                          <span className="text-lg font-bold text-cyan-300 capitalize">
-                            {sessionStats.dominantEmotion}
-                          </span>
-                        </div>
-                        <p className="text-xs text-cyan-300/60 mt-1">Mood</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Performance Metrics */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-cyan-300 mb-3 flex items-center">
-                      <Settings className="w-4 h-4 mr-2" />
-                      Performance
-                    </h3>
-
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-cyan-300/60">Processing:</span>
-                        <span className="text-cyan-300">
-                          {(backendMetrics as any)?.processing_time ? `${Math.round((backendMetrics as any).processing_time)}ms` : 'N/A'}
+                <div className="space-y-3">
+                  {faces.slice(0, 3).map((face, index) => (
+                    <div key={face.id} className="bg-black/30 rounded p-3">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-cyan-300 font-mono text-sm">Face #{index + 1}</span>
+                        <span className="text-green-400 text-xs">
+                          {Math.round(face.confidence * 100)}% confident
                         </span>
                       </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-cyan-300/60">Frames sent:</span>
-                        <span className="text-cyan-300">{frameCount}</span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-cyan-300/60">Connection:</span>
-                        <span className={wsConnected ? 'text-green-400' : 'text-red-400'}>
-                          {wsConnected ? 'Stable' : 'Disconnected'}
-                        </span>
+
+                      <div className="text-sm space-y-1">
+                        {face.age && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Age:</span>
+                            <span className="text-white">{face.age} years</span>
+                          </div>
+                        )}
+
+                        {face.gender && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Gender:</span>
+                            <span className="text-white capitalize">{face.gender}</span>
+                          </div>
+                        )}
+
+                        {face.dominant_emotion && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Emotion:</span>
+                            <span className="text-white capitalize">{face.dominant_emotion}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
+                  ))}
+
+                  {faces.length > 3 && (
+                    <p className="text-gray-400 text-sm text-center">
+                      +{faces.length - 3} more faces detected
+                    </p>
+                  )}
                 </div>
               )}
+            </div>
 
-              {/* Privacy Indicator */}
-              <div className="mt-6 pt-4 border-t border-cyan-400/20">
-                <div className="flex items-center space-x-2 text-xs text-green-400">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                  <span>Live Analysis - No Recording</span>
+            {/* System Status */}
+            <div className="bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4">
+              <h3 className="text-lg font-semibold text-cyan-300 mb-4 flex items-center">
+                <Brain className="w-5 h-5 mr-2" />
+                System Status
+              </h3>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">WebSocket:</span>
+                  <span className={`font-mono ${
+                    connectionStatus === 'connected' ? 'text-green-400' :
+                    connectionStatus === 'connecting' ? 'text-yellow-400' :
+                    'text-red-400'
+                  }`}>
+                    {connectionStatus.toUpperCase()}
+                  </span>
                 </div>
-                <p className="text-xs text-cyan-300/60 mt-1">
-                  All processing is done in real-time. No data is stored.
-                </p>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Camera:</span>
+                  <span className={`font-mono ${
+                    isStreaming && cameraReady ? 'text-green-400' :
+                    isInitializing || isStreaming ? 'text-yellow-400' :
+                    cameraError ? 'text-red-400' :
+                    'text-gray-400'
+                  }`}>
+                    {cameraError ? 'ERROR' :
+                     isInitializing ? 'STARTING' :
+                     isStreaming ? (cameraReady ? 'ACTIVE' : 'LOADING') : 'OFFLINE'}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Cameras:</span>
+                  <span className="font-mono text-cyan-300">
+                    {availableCameras.length} detected
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-400">AI Analysis:</span>
+                  <span className={`font-mono ${
+                    connectionStatus === 'connected' && isStreaming && cameraReady ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {connectionStatus === 'connected' && isStreaming && cameraReady ? 'ENABLED' : 'DISABLED'}
+                  </span>
+                </div>
               </div>
-            </motion.div>
+            </div>
           </div>
         </div>
-      </main>
-
-      <footer className="p-4 border-t border-cyan-400/20">
-        <div className="flex items-center justify-between text-xs text-cyan-300/60">
-          <span>IRIS Robotics Club © 2025</span>
-          <span>Real-time Computer Vision Platform</span>
-        </div>
-      </footer>
+      </div>
 
       {/* Hidden canvas for frame capture */}
-      <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
     </div>
   )
 }

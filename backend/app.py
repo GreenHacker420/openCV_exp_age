@@ -251,17 +251,34 @@ def handle_video_frame(data):
         # Debug: Log the results structure
         logger.info(f"Processing results: {type(results)}, keys: {results.keys() if isinstance(results, dict) else 'Not a dict'}")
 
+        # Convert numpy types to native Python types for JSON serialization
+        def convert_numpy_types(obj):
+            if isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            elif hasattr(obj, 'item'):  # numpy scalar
+                return obj.item()
+            elif hasattr(obj, 'tolist'):  # numpy array
+                return obj.tolist()
+            else:
+                return obj
+
         # Emit results
         if results and 'faces' in results and results['faces']:
+            # Convert numpy types before emitting
+            serializable_faces = convert_numpy_types(results['faces'])
+
             emit('face_detected', {
-                'faces': results['faces'],
+                'faces': serializable_faces,
                 'timestamp': timestamp,
                 'processing_time': processing_time
             })
-            
+
             if results['analysis']:
+                serializable_analysis = convert_numpy_types(results['analysis'])
                 emit('analysis_complete', {
-                    'results': results['analysis'],
+                    'results': serializable_analysis,
                     'timestamp': timestamp,
                     'processing_time': processing_time
                 })

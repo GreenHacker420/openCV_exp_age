@@ -2,34 +2,52 @@
 
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FaceDetectionResult } from '@/lib/faceAnalysis'
+
+interface Face {
+  id: string
+  bbox: number[]
+  confidence: number
+  age?: number
+  age_range?: string
+  gender?: string
+  dominant_emotion?: string
+  emotion_confidence?: number
+  emotions?: Record<string, number>
+}
 
 interface FaceAnalysisOverlayProps {
-  faces: FaceDetectionResult[]
-  videoRef: React.RefObject<HTMLVideoElement>
+  faces: Face[]
+  videoElement: HTMLVideoElement | null
+  containerWidth?: number
+  containerHeight?: number
   className?: string
 }
 
-export function FaceAnalysisOverlay({ faces, videoRef, className = '' }: FaceAnalysisOverlayProps) {
+export function FaceAnalysisOverlay({ faces, videoElement, className = '' }: FaceAnalysisOverlayProps) {
   // Calculate scale factors based on video element size vs actual video dimensions
   const getScaleFactors = () => {
-    if (!videoRef.current) return { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 }
-    
-    const video = videoRef.current
+    if (!videoElement) return { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 }
+
+    const video = videoElement
     const videoRect = video.getBoundingClientRect()
-    
+
     // Get actual video dimensions
     const videoWidth = video.videoWidth || 640
     const videoHeight = video.videoHeight || 480
-    
+
     // Calculate scale factors
     const scaleX = videoRect.width / videoWidth
     const scaleY = videoRect.height / videoHeight
-    
+
     return { scaleX, scaleY, offsetX: 0, offsetY: 0 }
   }
 
   const { scaleX, scaleY } = getScaleFactors()
+
+  // Don't render if video element is not ready
+  if (!videoElement || !videoElement.videoWidth || !videoElement.videoHeight) {
+    return null
+  }
 
   return (
     <div className={`absolute inset-0 pointer-events-none ${className}`}>
@@ -38,11 +56,11 @@ export function FaceAnalysisOverlay({ faces, videoRef, className = '' }: FaceAna
           const bbox = face.bbox
           if (!bbox || bbox.length < 4) return null
 
-          // Scale bounding box coordinates
-          const x = bbox[0] * scaleX
-          const y = bbox[1] * scaleY
-          const width = bbox[2] * scaleX
-          const height = bbox[3] * scaleY
+          // Scale bounding box coordinates with null checks
+          const x = (bbox[0] ?? 0) * scaleX
+          const y = (bbox[1] ?? 0) * scaleY
+          const width = (bbox[2] ?? 0) * scaleX
+          const height = (bbox[3] ?? 0) * scaleY
 
           // Determine confidence color
           const confidence = face.confidence || 0

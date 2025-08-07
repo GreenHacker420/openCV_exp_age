@@ -63,7 +63,7 @@ html {
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--font-titillium), 'Titillium Web', sans-serif;
+  font-family: 'Titillium Web', sans-serif;
   background-color: rgb(var(--color-bg-primary));
   color: rgb(var(--color-text-primary));
   line-height: 1.6;
@@ -322,8 +322,8 @@ canvas {
   }
 }
 
-/* High contrast mode */
-@media (prefers-contrast: high) {
+/* More contrast mode */
+@media (prefers-contrast: more) {
   :root {
     --color-primary: 255 255 255;
     --color-text-primary: 255 255 255;

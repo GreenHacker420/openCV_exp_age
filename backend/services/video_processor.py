@@ -66,32 +66,40 @@ class VideoProcessor:
     def process_frame(self, frame: np.ndarray) -> Dict:
         """
         Process a single video frame for facial analysis.
-        
+
         Args:
             frame (np.ndarray): Input video frame in BGR format
-            
+
         Returns:
             Dict: Processing results containing faces and analysis
         """
         start_time = time.time()
-        
+
         try:
             # Increment frame counter
             self.frame_count += 1
-            
+            logger.debug(f"Processing frame {self.frame_count}, shape: {frame.shape}")
+
             # Skip frames for performance if configured
             if self.frame_skip > 1 and self.frame_count % self.frame_skip != 0:
+                logger.debug(f"Skipping frame {self.frame_count} (frame_skip={self.frame_skip})")
                 return self.last_results
-            
+
             # Resize frame for processing
             processed_frame = resize_image(frame, self.max_frame_size)
-            
+            if processed_frame is None:
+                logger.error("Failed to resize frame")
+                return self._create_empty_result()
+
+            logger.debug(f"Resized frame from {frame.shape} to {processed_frame.shape}")
+
             # Detect faces
             faces = self.face_detector.detect_faces(processed_frame)
-            
+            logger.info(f"Detected {len(faces) if faces else 0} faces")
+
             # Initialize results
             results = {
-                'faces': faces,
+                'faces': faces if faces else [],
                 'analysis': [],
                 'frame_info': {
                     'original_size': frame.shape[:2],
@@ -100,32 +108,49 @@ class VideoProcessor:
                     'timestamp': datetime.now().isoformat()
                 }
             }
-            
+
             # Perform detailed analysis if faces detected
             if faces:
+                logger.debug(f"Analyzing {len(faces)} faces")
                 analysis_results = self._analyze_faces(processed_frame, faces)
                 results['analysis'] = analysis_results
-            
+
             # Update performance metrics
             processing_time = (time.time() - start_time) * 1000
             self._update_performance_metrics(processing_time)
-            
+
             # Cache results
             self.last_results = results
-            
+
+            logger.debug(f"Frame processing completed in {processing_time:.2f}ms")
             return results
-            
+
         except Exception as e:
-            logger.error(f"Error processing frame: {str(e)}")
-            return {
-                'faces': [],
-                'analysis': [],
-                'error': str(e),
-                'frame_info': {
-                    'frame_number': self.frame_count,
-                    'timestamp': datetime.now().isoformat()
-                }
+            logger.error(f"Error processing frame: {str(e)}", exc_info=True)
+            return self._create_error_result(str(e))
+
+    def _create_empty_result(self) -> Dict:
+        """Create an empty result structure."""
+        return {
+            'faces': [],
+            'analysis': [],
+            'frame_info': {
+                'frame_number': self.frame_count,
+                'timestamp': datetime.now().isoformat()
             }
+        }
+
+    def _create_error_result(self, error_message: str) -> Dict:
+        """Create an error result structure."""
+        return {
+            'faces': [],
+            'analysis': [],
+            'error': error_message,
+            'frame_info': {
+                'frame_number': self.frame_count,
+                'timestamp': datetime.now().isoformat()
+            }
+        }
     
     def _analyze_faces(self, frame: np.ndarray, faces: List[Dict]) -> List[Dict]:
         """
