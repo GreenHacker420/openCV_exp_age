@@ -62,9 +62,29 @@ class FaceDetector:
         self.insight_app = None
         if self.use_insightface:
             try:
-                self.insight_app = insightface.app.FaceAnalysis(name='buffalo_l')
-                self.insight_app.prepare(ctx_id=0, det_size=(640, 640))
-                logger.info("InsightFace initialized successfully for enhanced analysis")
+                # Use buffalo_l model which has the best accuracy for age/gender estimation
+                # Enable all analysis components for comprehensive face analysis
+                self.insight_app = insightface.app.FaceAnalysis(
+                    name='buffalo_l',
+                    providers=['CPUExecutionProvider'],  # Explicit provider for stability
+                    allowed_modules=['detection', 'genderage']  # Only load necessary modules for performance
+                )
+
+                # Optimize detection size for better age estimation accuracy
+                # Larger detection size generally improves age estimation accuracy
+                # Use 640x640 for best accuracy, can be reduced to 480x480 for performance
+                det_size = (640, 640)
+                self.insight_app.prepare(
+                    ctx_id=0,
+                    det_size=det_size,
+                    det_thresh=0.5  # Lower threshold for better detection of smaller faces
+                )
+
+                logger.info(f"InsightFace buffalo_l model initialized successfully:")
+                logger.info(f"  - Detection size: {det_size}")
+                logger.info(f"  - Modules: detection, genderage")
+                logger.info(f"  - Provider: CPUExecutionProvider")
+
             except Exception as e:
                 logger.warning(f"Failed to initialize InsightFace: {str(e)}, falling back to MediaPipe only")
                 self.use_insightface = False
@@ -93,13 +113,24 @@ class FaceDetector:
 
     def _detect_faces_insightface(self, image: np.ndarray) -> List[Dict]:
         """
-        Detect faces using InsightFace for enhanced analysis.
+        Detect faces using InsightFace for enhanced analysis with optimized preprocessing.
         """
         try:
             # InsightFace expects RGB format
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-            # Perform analysis
+            # Optimize image quality for better age estimation
+            # Ensure image is in proper format and quality
+            if rgb_image.dtype != np.uint8:
+                rgb_image = rgb_image.astype(np.uint8)
+
+            # Apply slight contrast enhancement for better feature detection
+            # This can improve age estimation accuracy
+            alpha = 1.1  # Contrast control (1.0-3.0)
+            beta = 5     # Brightness control (0-100)
+            rgb_image = cv2.convertScaleAbs(rgb_image, alpha=alpha, beta=beta)
+
+            # Perform analysis with optimized image
             faces_data = self.insight_app.get(rgb_image)
 
             faces = []
@@ -117,9 +148,48 @@ class FaceDetector:
                 w = min(w, width - x)
                 h = min(h, height - y)
 
-                # Extract age and gender
-                age = int(face.age) if hasattr(face, 'age') else None
-                gender = 'male' if hasattr(face, 'gender') and face.gender == 1 else 'female'
+                # Extract age with proper validation and confidence
+                age = None
+                age_confidence = 0.0
+                if hasattr(face, 'age') and face.age is not None:
+                    raw_age = float(face.age)
+                    # Validate age range (reasonable human age bounds)
+                    if 0 <= raw_age <= 120:
+                        age = int(round(raw_age))
+                        # Calculate age confidence based on detection confidence
+                        # InsightFace age estimation is generally reliable when detection confidence is high
+                        age_confidence = min(0.95, float(face.det_score) * 1.1)
+                    else:
+                        logger.warning(f"Invalid age detected: {raw_age}, skipping age estimation")
+
+                # Extract gender with proper confidence calculation
+                gender = None
+                gender_confidence = 0.0
+                if hasattr(face, 'gender') and face.gender is not None:
+                    # InsightFace gender: 0 = female, 1 = male
+                    gender = 'male' if face.gender == 1 else 'female'
+                    # Gender confidence is typically high for InsightFace
+                    gender_confidence = min(0.95, float(face.det_score) * 1.05)
+
+                # Create age range for better UX
+                age_range = None
+                if age is not None:
+                    if age < 13:
+                        age_range = "0-12"
+                    elif age < 20:
+                        age_range = "13-19"
+                    elif age < 30:
+                        age_range = "20-29"
+                    elif age < 40:
+                        age_range = "30-39"
+                    elif age < 50:
+                        age_range = "40-49"
+                    elif age < 60:
+                        age_range = "50-59"
+                    elif age < 70:
+                        age_range = "60-69"
+                    else:
+                        age_range = "70+"
 
                 # Create face data with enhanced information
                 face_data = {
@@ -129,9 +199,10 @@ class FaceDetector:
                     'center': [x + w // 2, y + h // 2],
                     'area': w * h,
                     'age': age,
+                    'age_range': age_range,
+                    'age_confidence': age_confidence,
                     'gender': gender,
-                    'age_confidence': 0.9,  # InsightFace generally has high confidence
-                    'gender_confidence': 0.9,
+                    'gender_confidence': gender_confidence,
                     # Add basic emotion (InsightFace doesn't provide emotion directly)
                     'dominant_emotion': 'neutral',
                     'emotion_confidence': 0.5,
@@ -148,6 +219,14 @@ class FaceDetector:
 
             # Sort faces by confidence (highest first)
             faces.sort(key=lambda x: x['confidence'], reverse=True)
+
+            # Log performance metrics for monitoring
+            if faces:
+                ages = [f['age'] for f in faces if f['age'] is not None]
+                confidences = [f['confidence'] for f in faces]
+                logger.debug(f"InsightFace results: {len(faces)} faces, avg_confidence={sum(confidences)/len(confidences):.3f}")
+                if ages:
+                    logger.debug(f"Age range: {min(ages)}-{max(ages)}, avg={sum(ages)/len(ages):.1f}")
 
             return faces
 

@@ -60,8 +60,13 @@ class VideoProcessor:
         self.processing_times = []
         self.last_results = {}
         self.result_cache = {}
-        
-        logger.info("Video processor initialized")
+
+        # Performance optimization settings
+        self.min_face_size = 30  # Minimum face size to process (pixels)
+        self.max_faces_to_analyze = 3  # Limit detailed analysis to top 3 faces
+        self.cache_duration = 5  # Cache results for 5 frames
+
+        logger.info(f"Video processor initialized with performance optimizations: max_frame_size={max_frame_size}, frame_skip={frame_skip}")
     
     def process_frame(self, frame: np.ndarray) -> Dict:
         """
@@ -96,6 +101,19 @@ class VideoProcessor:
             # Detect faces
             faces = self.face_detector.detect_faces(processed_frame)
             logger.info(f"Detected {len(faces) if faces else 0} faces")
+
+            # Filter faces by minimum size for performance
+            if faces:
+                filtered_faces = []
+                for face in faces:
+                    bbox = face.get('bbox', [0, 0, 0, 0])
+                    face_width, face_height = bbox[2], bbox[3]
+                    if face_width >= self.min_face_size and face_height >= self.min_face_size:
+                        filtered_faces.append(face)
+
+                # Limit to top faces by confidence for performance
+                faces = sorted(filtered_faces, key=lambda x: x.get('confidence', 0), reverse=True)[:self.max_faces_to_analyze]
+                logger.debug(f"Filtered to {len(faces)} faces for analysis")
 
             # Initialize results
             results = {
