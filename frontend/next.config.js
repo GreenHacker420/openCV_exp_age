@@ -39,7 +39,7 @@ const nextConfig = {
     NEXT_PUBLIC_APP_NAME: 'IRIS Facial Analysis',
     NEXT_PUBLIC_APP_VERSION: '1.0.0',
     NEXT_PUBLIC_MODELS_PATH: '/models',
-    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:5001'
+    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001'
   },
 
   // Experimental features

@@ -80,13 +80,20 @@ export function useWebSocket(
     clearReconnectTimeout()
 
     try {
-      // Create socket connection
+      // Create socket connection with Flask-SocketIO compatible settings
+      // Connect to the default namespace - don't set path as it defaults to '/socket.io/'
       const socket = io(url, {
         timeout,
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
         upgrade: true,
         rememberUpgrade: true,
-        autoConnect: false
+        autoConnect: false,
+        forceNew: true, // Force new connection
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        withCredentials: false
+        // Don't set path - let it default to '/socket.io/' for the endpoint, not namespace
       })
 
       // Connection successful
@@ -149,9 +156,10 @@ export function useWebSocket(
       // Error handling
       socket.on('error', (err) => {
         if (!mountedRef.current) return
-        
+
         console.error('WebSocket error:', err)
-        const wsError = createError('WEBSOCKET_ERROR', `Socket error: ${err.message}`, err)
+        const errorMessage = err?.message || err?.toString() || 'Unknown WebSocket error'
+        const wsError = createError('WEBSOCKET_ERROR', `Socket error: ${errorMessage}`, err)
         setError(wsError)
         onError?.(wsError)
       })
@@ -248,7 +256,7 @@ export function useWebSocket(
         socketRef.current.disconnect()
       }
     }
-  }, [autoConnect, connect, clearReconnectTimeout])
+  }, [autoConnect]) // Remove connect and clearReconnectTimeout to prevent infinite loop
 
   // Cleanup on unmount
   useEffect(() => {
@@ -260,7 +268,7 @@ export function useWebSocket(
         socketRef.current = null
       }
     }
-  }, [clearReconnectTimeout])
+  }, []) // Empty dependency array for cleanup effect
 
   return {
     socket: socketRef.current,

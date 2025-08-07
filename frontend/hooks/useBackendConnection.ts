@@ -43,6 +43,7 @@ export function useBackendConnection(): UseBackendConnectionReturn {
   const healthCheckInterval = useRef<NodeJS.Timeout>()
   const reconnectTimeout = useRef<NodeJS.Timeout>()
   const mountedRef = useRef(true)
+  const initialConnectionAttempted = useRef(false)
 
   // Health check function
   const checkHealth = useCallback(async (): Promise<boolean> => {
@@ -112,13 +113,16 @@ export function useBackendConnection(): UseBackendConnectionReturn {
 
   // Connect to backend
   const connect = useCallback(async (): Promise<void> => {
-    if (state.isConnecting || state.isConnected) return
+    // Use a ref to check current state to avoid dependency loop
+    setState(prev => {
+      if (prev.isConnecting || prev.isConnected) return prev
 
-    setState(prev => ({
-      ...prev,
-      isConnecting: true,
-      error: null,
-    }))
+      return {
+        ...prev,
+        isConnecting: true,
+        error: null,
+      }
+    })
 
     try {
       // First check if backend is healthy
@@ -147,29 +151,77 @@ export function useBackendConnection(): UseBackendConnectionReturn {
       if (healthCheckInterval.current) {
         clearInterval(healthCheckInterval.current)
       }
-      
+
       healthCheckInterval.current = setInterval(async () => {
         const healthy = await checkHealth()
-        if (!healthy && state.isConnected) {
-          // Backend became unhealthy, attempt reconnection
-          disconnect()
-          scheduleReconnect()
-        }
+        // Use setState callback to get current state
+        setState(currentState => {
+          if (!healthy && currentState.isConnected) {
+            // Backend became unhealthy, disconnect and schedule reconnect
+            wsClient.disconnect()
+
+            if (healthCheckInterval.current) {
+              clearInterval(healthCheckInterval.current)
+              healthCheckInterval.current = undefined
+            }
+
+            if (reconnectTimeout.current) {
+              clearTimeout(reconnectTimeout.current)
+            }
+
+            // Schedule reconnection
+            if (currentState.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+              reconnectTimeout.current = setTimeout(() => {
+                setState(prev => ({
+                  ...prev,
+                  reconnectAttempts: prev.reconnectAttempts + 1,
+                }))
+                connect()
+              }, RECONNECT_DELAY * (currentState.reconnectAttempts + 1))
+            }
+
+            return {
+              ...currentState,
+              isConnected: false,
+              isConnecting: false,
+            }
+          }
+          return currentState
+        })
       }, HEALTH_CHECK_INTERVAL)
 
     } catch (error) {
       if (!mountedRef.current) return
 
-      setState(prev => ({
-        ...prev,
-        isConnected: false,
-        isConnecting: false,
-        error: error instanceof Error ? error.message : 'Connection failed',
-      }))
+      setState(prev => {
+        const newState = {
+          ...prev,
+          isConnected: false,
+          isConnecting: false,
+          error: error instanceof Error ? error.message : 'Connection failed',
+        }
 
-      scheduleReconnect()
+        // Schedule reconnection if not at max attempts
+        if (prev.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          if (reconnectTimeout.current) {
+            clearTimeout(reconnectTimeout.current)
+          }
+
+          reconnectTimeout.current = setTimeout(() => {
+            setState(s => ({
+              ...s,
+              reconnectAttempts: s.reconnectAttempts + 1,
+            }))
+            connect()
+          }, RECONNECT_DELAY * (prev.reconnectAttempts + 1))
+        } else {
+          newState.error = `Failed to connect after ${MAX_RECONNECT_ATTEMPTS} attempts`
+        }
+
+        return newState
+      })
     }
-  }, [state.isConnecting, state.isConnected, checkHealth, getModelsInfo])
+  }, [checkHealth, getModelsInfo])
 
   // Disconnect from backend
   const disconnect = useCallback(() => {
@@ -192,28 +244,7 @@ export function useBackendConnection(): UseBackendConnectionReturn {
     }))
   }, [])
 
-  // Schedule reconnection attempt
-  const scheduleReconnect = useCallback(() => {
-    if (state.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      setState(prev => ({
-        ...prev,
-        error: `Failed to connect after ${MAX_RECONNECT_ATTEMPTS} attempts`,
-      }))
-      return
-    }
 
-    if (reconnectTimeout.current) {
-      clearTimeout(reconnectTimeout.current)
-    }
-
-    reconnectTimeout.current = setTimeout(() => {
-      setState(prev => ({
-        ...prev,
-        reconnectAttempts: prev.reconnectAttempts + 1,
-      }))
-      connect()
-    }, RECONNECT_DELAY * (state.reconnectAttempts + 1))
-  }, [state.reconnectAttempts, connect])
 
   // Send video frame for analysis
   const sendVideoFrame = useCallback((imageData: string, options?: any) => {
@@ -258,13 +289,24 @@ export function useBackendConnection(): UseBackendConnectionReturn {
   useEffect(() => {
     return () => {
       mountedRef.current = false
-      disconnect()
+      // Cleanup without calling disconnect to avoid dependency loop
+      if (healthCheckInterval.current) {
+        clearInterval(healthCheckInterval.current)
+        healthCheckInterval.current = undefined
+      }
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current)
+        reconnectTimeout.current = undefined
+      }
     }
-  }, [disconnect])
+  }, [])
 
   // Auto-connect on mount
   useEffect(() => {
-    connect()
+    if (!initialConnectionAttempted.current) {
+      initialConnectionAttempted.current = true
+      connect()
+    }
   }, []) // Only run once on mount
 
   const isHealthy = state.healthStatus?.status === 'healthy' && state.isConnected && !state.error

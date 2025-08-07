@@ -5,13 +5,15 @@
 
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, CameraOff, Settings, AlertCircle, Play, Square } from 'lucide-react'
-import { useCamera } from '@/hooks/use-camera'
+// import { useCamera } from '@/hooks/use-camera' // Disabled - using SimpleCameraFeed instead
 import { useBackendConnection } from '@/hooks/useBackendConnection'
 import { useWebSocket, useVideoFrameSender, useAnalysisReceiver } from '@/hooks/use-websocket'
 import { FaceDetectionResult } from '@/lib/faceAnalysis'
+import SimpleCameraFeed from './SimpleCameraFeed'
+import FaceAnalysisOverlay from '../analysis/FaceAnalysisOverlay'
 
 import { getWebSocketUrl } from '@/lib/config'
 
@@ -29,6 +31,7 @@ export function IRISCameraFeed({
   const [showSettings, setShowSettings] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
   // Backend connection
   const {
@@ -42,9 +45,7 @@ export function IRISCameraFeed({
   const {
     socket,
     isConnected: wsConnected,
-    error: wsError,
-    connect: connectWS,
-    disconnect: disconnectWS
+    error: wsError
   } = useWebSocket(getWebSocketUrl(), {
     autoConnect: true,
     onConnect: () => console.log('WebSocket connected for camera feed'),
@@ -63,55 +64,95 @@ export function IRISCameraFeed({
     metrics: backendMetrics
   } = useAnalysisReceiver(socket)
 
-  // Camera hook with frame capture for backend analysis
-  const {
-    videoRef,
-    canvasRef,
-    isActive: cameraActive,
-    isLoading: cameraLoading,
-    error: cameraError,
-    startCamera,
-    stopCamera,
-    captureFrame,
-    permissions
-  } = useCamera({
-    onFrame: (frameData) => {
-      // Send frames to backend if connected
-      if (wsConnected && frameData) {
-        console.log('IRISCameraFeed: Sending frame to backend, size:', frameData.length)
-        sendFrame(frameData, 200) // Send every 200ms (5 FPS to backend)
-      } else {
-        console.log('IRISCameraFeed: Not sending frame - wsConnected:', wsConnected, 'frameData:', !!frameData)
-      }
-    },
-    frameRate: 30
-  })
+  // Camera hook disabled - now using SimpleCameraFeed component instead
+  // const {
+  //   videoRef,
+  //   canvasRef,
+  //   isActive: cameraActive,
+  //   isLoading: cameraLoading,
+  //   error: cameraError,
+  //   startCamera,
+  //   stopCamera,
+  //   captureFrame,
+  //   permissions
+  // } = useCamera({
+  //   autoStart: true, // Auto-start camera on component mount
+  //   onFrame: (frameData) => {
+  //     // Send frames to backend if connected
+  //     if (wsConnected && frameData) {
+  //       console.log('IRISCameraFeed: Sending frame to backend, size:', frameData.length)
+  //       sendFrame(frameData, 200) // Send every 200ms (5 FPS to backend)
+  //     } else {
+  //       console.log('IRISCameraFeed: Not sending frame - wsConnected:', wsConnected, 'frameData:', !!frameData)
+  //     }
+  //   },
+  //   frameRate: 30
+  // })
 
-  // Performance metrics for backend analysis
-  const performanceMetrics = {
+  // Dummy values for now since we're using SimpleCameraFeed
+  const cameraActive = true // SimpleCameraFeed handles its own state
+  const cameraLoading = false
+  const cameraError = null
+  const permissions = { granted: true, denied: false, prompt: false }
+
+  // Performance metrics for backend analysis - memoized to prevent infinite loops
+  const performanceMetrics = useMemo(() => ({
     fps: (backendMetrics as any)?.fps || 0,
     processingTime: (backendMetrics as any)?.processing_time || 0,
     memoryUsage: 0,
     facesDetected: backendFaces.length,
     averageConfidence: backendFaces.reduce((acc: number, face: any) => acc + (face.confidence || 0), 0) / Math.max(backendFaces.length, 1)
+  }), [backendMetrics, backendFaces])
+
+  // Handle frame capture from SimpleCameraFeed
+  const handleFrameCapture = (imageData: ImageData) => {
+    console.log('IRISCameraFeed: Received frame from SimpleCameraFeed:', imageData.width, 'x', imageData.height)
+
+    // Convert ImageData to base64 for sending to backend
+    const canvas = document.createElement('canvas')
+    canvas.width = imageData.width
+    canvas.height = imageData.height
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.putImageData(imageData, 0, 0)
+      const base64Data = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
+
+      // Send frame to backend if connected
+      if (wsConnected && sendFrame && base64Data) {
+        console.log('IRISCameraFeed: Sending frame to backend, size:', base64Data.length, 'chars')
+        sendFrame(base64Data, 200) // Send every 200ms (5 FPS to backend)
+      } else {
+        console.log('IRISCameraFeed: Cannot send frame - wsConnected:', wsConnected, 'sendFrame:', !!sendFrame, 'base64Data:', !!base64Data)
+      }
+    }
   }
 
   // Connect to backend when component mounts
   useEffect(() => {
     console.log('IRISCameraFeed: Connecting to backend...')
     connectBackend()
-    connectWS()
+    // Note: WebSocket auto-connects due to autoConnect: true, no need to call connectWS()
     return () => {
       console.log('IRISCameraFeed: Disconnecting from backend...')
       disconnectBackend()
-      disconnectWS()
+      // Note: WebSocket will auto-disconnect on component unmount
     }
-  }, [connectBackend, connectWS, disconnectBackend, disconnectWS])
+  }, []) // Only run once on mount
 
   // Debug WebSocket connection status
   useEffect(() => {
     console.log('IRISCameraFeed: WebSocket connected:', wsConnected)
   }, [wsConnected])
+
+  // Debug camera state
+  useEffect(() => {
+    console.log('IRISCameraFeed: Camera state:', {
+      isActive: cameraActive,
+      isLoading: cameraLoading,
+      error: cameraError,
+      permissions
+    })
+  }, [cameraActive, cameraLoading, cameraError, permissions])
 
   // Handle backend face results
   useEffect(() => {
@@ -119,37 +160,35 @@ export function IRISCameraFeed({
       onFaceResults?.(backendFaces as FaceDetectionResult[])
       drawFaceOverlays(backendFaces as FaceDetectionResult[])
     }
-  }, [backendFaces, onFaceResults])
+  }, [backendFaces]) // Remove onFaceResults from dependencies to prevent infinite loop
 
-  // Update performance metrics
+  // Update performance metrics - use ref to avoid dependency loop
   useEffect(() => {
     if (onPerformanceUpdate) {
       onPerformanceUpdate(performanceMetrics)
     }
-  }, [performanceMetrics, onPerformanceUpdate])
+  }, [performanceMetrics]) // Remove onPerformanceUpdate from dependencies to prevent infinite loop
 
-  // Handle camera toggle
+  // Handle camera toggle - SimpleCameraFeed handles its own start/stop
   const handleCameraToggle = async () => {
-    if (cameraActive) {
-      stopCamera()
-    } else {
-      await startCamera()
-    }
+    // SimpleCameraFeed component handles its own camera management
+    console.log('Camera toggle requested - SimpleCameraFeed handles this internally')
   }
 
   // Draw face detection overlays
   const drawFaceOverlays = (faces: FaceDetectionResult[]) => {
     const canvas = overlayCanvasRef.current
-    const video = videoRef.current
-    
-    if (!canvas || !video) return
+    // Note: SimpleCameraFeed handles its own video element, so we can't access it directly
+    // For now, we'll skip the video dimension check
+
+    if (!canvas) return
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Set canvas size to match video
-    canvas.width = video.videoWidth || 640
-    canvas.height = video.videoHeight || 480
+    // Set canvas size to default dimensions (SimpleCameraFeed handles video)
+    canvas.width = 640
+    canvas.height = 480
 
     // Clear previous drawings
     ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -157,10 +196,10 @@ export function IRISCameraFeed({
     // Draw face bounding boxes and labels
     faces.forEach((face, index) => {
       const [x, y, width, height] = face.bbox
-      
-      // Scale coordinates to canvas size
-      const scaleX = canvas.width / (video.videoWidth || 640)
-      const scaleY = canvas.height / (video.videoHeight || 480)
+
+      // Scale coordinates to canvas size (using default dimensions)
+      const scaleX = canvas.width / 640
+      const scaleY = canvas.height / 480
       
       const scaledX = x * scaleX
       const scaledY = y * scaleY
@@ -316,20 +355,25 @@ export function IRISCameraFeed({
               </div>
             </div>
           ) : (
-            // Active camera state
+            // Active camera state - use SimpleCameraFeed
             <>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
+              <SimpleCameraFeed
+                onFrame={handleFrameCapture}
+                className="w-full h-full"
+                videoRef={videoRef}
               />
-              
-              {/* Face detection overlay canvas */}
+
+              {/* Real-time face analysis overlay */}
+              <FaceAnalysisOverlay
+                faces={backendFaces}
+                videoRef={videoRef}
+                className="absolute inset-0"
+              />
+
+              {/* Legacy canvas overlay (can be removed if not needed) */}
               <canvas
                 ref={overlayCanvasRef}
-                className="absolute inset-0 w-full h-full pointer-events-none"
+                className="absolute inset-0 w-full h-full pointer-events-none hidden"
               />
             </>
           )}
@@ -341,7 +385,7 @@ export function IRISCameraFeed({
                 <AlertCircle className="w-12 h-12 mx-auto mb-4" />
                 <p className="mb-2">Camera Error</p>
                 <p className="text-sm text-red-300">
-                  {cameraError?.message || wsError?.message || 'Unknown error'}
+                  {wsError?.message || 'Unknown error'}
                 </p>
               </div>
             </div>
