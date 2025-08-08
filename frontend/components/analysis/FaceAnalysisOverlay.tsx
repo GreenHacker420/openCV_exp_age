@@ -21,9 +21,17 @@ interface FaceAnalysisOverlayProps {
   containerWidth?: number
   containerHeight?: number
   className?: string
+  isFullscreen?: boolean
+  showControls?: boolean
 }
 
-export function FaceAnalysisOverlay({ faces, videoElement, className = '' }: FaceAnalysisOverlayProps) {
+export function FaceAnalysisOverlay({
+  faces,
+  videoElement,
+  className = '',
+  isFullscreen = false,
+  showControls = true
+}: FaceAnalysisOverlayProps) {
   // Calculate scale factors based on video element size vs actual video dimensions
   const getScaleFactors = () => {
     if (!videoElement) return { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 }
@@ -104,9 +112,19 @@ export function FaceAnalysisOverlay({ faces, videoElement, className = '' }: Fac
               {/* Analysis results panel */}
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute -top-20 left-0 bg-black/80 backdrop-blur-sm rounded-lg p-2 min-w-32 text-xs"
-                style={{ minWidth: Math.max(width, 120) }}
+                animate={{
+                  opacity: isFullscreen && !showControls ? 0.7 : 1,
+                  y: 0
+                }}
+                className={`absolute -top-20 left-0 backdrop-blur-sm rounded-lg p-2 min-w-32 transition-all duration-300 ${
+                  isFullscreen
+                    ? 'bg-black/90 text-sm border border-cyan-400/30'
+                    : 'bg-black/80 text-xs'
+                }`}
+                style={{
+                  minWidth: Math.max(width, isFullscreen ? 150 : 120),
+                  fontSize: isFullscreen ? '14px' : '12px'
+                }}
               >
                 {/* Face ID and Confidence */}
                 <div className="flex justify-between items-center mb-1">

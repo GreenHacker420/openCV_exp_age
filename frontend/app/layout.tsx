@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import '../styles/fullscreen.css'
 
 export const metadata: Metadata = {
   title: 'IRIS Robotics Club - Facial Analysis Platform',

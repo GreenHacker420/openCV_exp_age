@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { Camera, Users, Brain, Activity, Clock, TrendingUp, AlertCircle, Settings, Play, Pause } from 'lucide-react'
+import { Camera, Users, Brain, Activity, Clock, TrendingUp, AlertCircle, Settings, Play, Pause, Maximize, Minimize, Eye, EyeOff } from 'lucide-react'
 import { io, Socket } from 'socket.io-client'
 import { getWebSocketUrl } from '@/lib/config'
 import FaceAnalysisOverlay from '@/components/analysis/FaceAnalysisOverlay'
+import { KeyboardShortcuts, FullscreenExitHint } from '@/components/ui/KeyboardShortcuts'
 
 interface Face {
   id: string
@@ -124,6 +125,13 @@ function IRISMainApp() {
     sessionDuration: 0,
     startTime: Date.now()
   })
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [mouseMovementTimeout, setMouseMovementTimeout] = useState<NodeJS.Timeout | null>(null)
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null)
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -420,6 +428,123 @@ function IRISMainApp() {
     console.log('Frame capture stopped')
   }, [])
 
+  // Fullscreen functionality
+  const enterFullscreen = useCallback(async () => {
+    try {
+      const element = fullscreenContainerRef.current
+      if (!element) return
+
+      if (element.requestFullscreen) {
+        await element.requestFullscreen()
+      } else if ((element as any).webkitRequestFullscreen) {
+        await (element as any).webkitRequestFullscreen()
+      } else if ((element as any).msRequestFullscreen) {
+        await (element as any).msRequestFullscreen()
+      }
+
+      setIsFullscreen(true)
+      console.log('Entered fullscreen mode')
+    } catch (error) {
+      console.error('Failed to enter fullscreen:', error)
+    }
+  }, [])
+
+  const exitFullscreen = useCallback(async () => {
+    try {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen()
+      } else if ((document as any).webkitExitFullscreen) {
+        await (document as any).webkitExitFullscreen()
+      } else if ((document as any).msExitFullscreen) {
+        await (document as any).msExitFullscreen()
+      }
+
+      setIsFullscreen(false)
+      setShowControls(true)
+      console.log('Exited fullscreen mode')
+    } catch (error) {
+      console.error('Failed to exit fullscreen:', error)
+    }
+  }, [])
+
+  const toggleFullscreen = useCallback(() => {
+    if (isFullscreen) {
+      exitFullscreen()
+    } else {
+      enterFullscreen()
+    }
+  }, [isFullscreen, enterFullscreen, exitFullscreen])
+
+  const toggleControlsVisibility = useCallback(() => {
+    setShowControls(prev => !prev)
+  }, [])
+
+  const handleMouseMovement = useCallback(() => {
+    if (!isFullscreen) return
+
+    setShowControls(true)
+
+    // Clear existing timeout
+    if (mouseMovementTimeout) {
+      clearTimeout(mouseMovementTimeout)
+    }
+
+    // Set new timeout to hide controls after 3 seconds of inactivity
+    const timeout = setTimeout(() => {
+      setShowControls(false)
+    }, 3000)
+
+    setMouseMovementTimeout(timeout)
+  }, [isFullscreen, mouseMovementTimeout])
+
+  // Handle fullscreen change events
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).msFullscreenElement
+      )
+
+      setIsFullscreen(isCurrentlyFullscreen)
+
+      if (!isCurrentlyFullscreen) {
+        setShowControls(true)
+        if (mouseMovementTimeout) {
+          clearTimeout(mouseMovementTimeout)
+          setMouseMovementTimeout(null)
+        }
+      }
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+    document.addEventListener('msfullscreenchange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('msfullscreenchange', handleFullscreenChange)
+    }
+  }, [mouseMovementTimeout])
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F11') {
+        event.preventDefault()
+        toggleFullscreen()
+      } else if (event.key === 'Escape' && isFullscreen) {
+        exitFullscreen()
+      } else if (event.key === 'h' && isFullscreen) {
+        toggleControlsVisibility()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen, toggleFullscreen, exitFullscreen, toggleControlsVisibility])
+
   // Initialize WebSocket and enumerate cameras on mount
   useEffect(() => {
     initializeWebSocket()
@@ -472,7 +597,13 @@ function IRISMainApp() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div
+      ref={fullscreenContainerRef}
+      className={`min-h-screen bg-black text-white ${
+        isFullscreen ? 'fullscreen-container' : ''
+      }`}
+      onMouseMove={handleMouseMovement}
+    >
       {/* Header */}
       <header className="border-b border-cyan-400/30 bg-black/90 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -521,13 +652,29 @@ function IRISMainApp() {
       </header>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={`transition-all duration-300 ${
+        isFullscreen
+          ? 'p-0 h-screen flex flex-col'
+          : 'max-w-7xl mx-auto px-4 py-6'
+      }`}>
+        <div className={`transition-all duration-300 ${
+          isFullscreen
+            ? 'flex-1 flex'
+            : 'grid grid-cols-1 lg:grid-cols-3 gap-6'
+        }`}>
 
           {/* Camera Feed - Main Column */}
-          <div className="lg:col-span-2">
-            <div className="bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-4">
+          <div className={`${isFullscreen ? 'flex-1 flex flex-col' : 'lg:col-span-2'}`}>
+            <div className={`transition-all duration-300 ${
+              isFullscreen
+                ? 'flex-1 flex flex-col bg-black'
+                : 'bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4'
+            }`}>
+              <div className={`flex items-center justify-between transition-all duration-300 ${
+                isFullscreen
+                  ? `absolute top-4 left-4 right-4 z-10 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`
+                  : 'mb-4'
+              }`}>
                 <h2 className="text-lg font-semibold text-cyan-300 flex items-center">
                   <Camera className="w-5 h-5 mr-2" />
                   Live Camera Feed
@@ -560,16 +707,62 @@ function IRISMainApp() {
                       </>
                     )}
                   </button>
+
+                  {/* Fullscreen Toggle Button */}
+                  <button
+                    onClick={toggleFullscreen}
+                    className="px-3 py-1 rounded text-sm font-medium transition-colors bg-purple-600 hover:bg-purple-700 text-white"
+                    title={isFullscreen ? 'Exit Fullscreen (F11)' : 'Enter Fullscreen (F11)'}
+                  >
+                    {isFullscreen ? (
+                      <>
+                        <Minimize className="w-4 h-4 inline mr-1" />
+                        Exit
+                      </>
+                    ) : (
+                      <>
+                        <Maximize className="w-4 h-4 inline mr-1" />
+                        Fullscreen
+                      </>
+                    )}
+                  </button>
+
+                  {/* Controls Visibility Toggle (only in fullscreen) */}
+                  {isFullscreen && (
+                    <button
+                      onClick={toggleControlsVisibility}
+                      className="px-3 py-1 rounded text-sm font-medium transition-colors bg-gray-600 hover:bg-gray-700 text-white"
+                      title={showControls ? 'Hide Controls (H)' : 'Show Controls (H)'}
+                    >
+                      {showControls ? (
+                        <>
+                          <EyeOff className="w-4 h-4 inline mr-1" />
+                          Hide
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-4 h-4 inline mr-1" />
+                          Show
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: '4/3' }}>
+              <div className={`relative bg-black overflow-hidden transition-all duration-300 ${
+                isFullscreen
+                  ? 'flex-1 w-full h-full'
+                  : 'rounded-lg'
+              }`} style={isFullscreen ? {} : { aspectRatio: '4/3' }}>
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover"
+                  className={`w-full h-full transition-all duration-300 ${
+                    isFullscreen ? 'object-contain' : 'object-cover'
+                  }`}
                 />
 
                 {/* Face Analysis Overlay */}
@@ -577,6 +770,8 @@ function IRISMainApp() {
                   <FaceAnalysisOverlay
                     faces={faces}
                     videoElement={videoRef.current}
+                    isFullscreen={isFullscreen}
+                    showControls={showControls}
                   />
                 )}
 
@@ -638,7 +833,9 @@ function IRISMainApp() {
           </div>
 
           {/* Statistics Panel */}
-          <div className="space-y-6">
+          <div className={`space-y-6 transition-all duration-300 ${
+            isFullscreen ? 'hidden' : 'block'
+          }`}>
 
             {/* Session Stats */}
             <div className="bg-gray-900/50 border border-cyan-400/30 rounded-lg p-4">
@@ -784,6 +981,10 @@ function IRISMainApp() {
 
       {/* Hidden canvas for frame capture */}
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+      {/* Fullscreen Components */}
+      <FullscreenExitHint isFullscreen={isFullscreen} />
+      <KeyboardShortcuts isFullscreen={isFullscreen} showControls={showControls} />
     </div>
   )
 }
