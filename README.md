@@ -1,201 +1,144 @@
-# IRIS Robotics Club - Facial Analysis Platform
+<h1 align="center">🤖 IRIS Robotics Club – Facial Analysis Platform</h1>
+<p align="center">
+  A real-time <b>facial analysis platform</b> showcasing <b>Computer Vision + AI</b> for robotics club events and tech fairs.
+</p>
 
-A real-time facial analysis web platform designed for robotics club events and tech fairs. The platform demonstrates advanced computer vision capabilities through live facial feature detection, age estimation, and emotion recognition in an engaging, interactive format.
+<p align="center">
+  <a href="https://github.com/iris-robotics-club/facial-analysis-platform/stargazers">
+    <img src="https://img.shields.io/github/stars/iris-robotics-club/facial-analysis-platform?style=for-the-badge&logo=github&color=4D9EFF"/>
+  </a>
+  <a href="https://github.com/iris-robotics-club/facial-analysis-platform/issues">
+    <img src="https://img.shields.io/github/issues/iris-robotics-club/facial-analysis-platform?style=for-the-badge&color=orange"/>
+  </a>
+  <a href="https://github.com/iris-robotics-club/facial-analysis-platform/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/iris-robotics-club/facial-analysis-platform?style=for-the-badge&color=green"/>
+  </a>
+</p>
 
-## 🎯 Project Overview
+---
 
-This platform showcases cutting-edge AI and computer vision technology through:
-- **Real-time facial detection** with MediaPipe integration
-- **Advanced age estimation** using DEX (Deep EXpectation) VGG-16 model
-- **Emotion recognition** with EmoNeXt ConvNeXt-based architecture
-- **Gender detection** with confidence scoring
-- **Multi-face support** (up to 3 faces for optimal performance)
-- **Futuristic UI** using Arwes cyberpunk framework
+## 📖 Table of Contents
+- [✨ Overview](#-overview)
+- [🏗️ Project Structure](#️-project-structure)
+- [🚀 Quick Start](#-quick-start)
+- [🎨 Features](#-features)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [📋 Roadmap](#-roadmap)
+- [🎪 Demo Use Cases](#-demo-use-cases)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+- [🆘 Support](#-support)
+
+---
+
+## ✨ Overview
+A **real-time facial analysis web platform** designed for robotics club events & tech fairs.  
+Showcases **live AI-powered facial analysis** with age estimation, gender detection, and emotion recognition in an interactive, futuristic UI.  
+
+---
 
 ## 🏗️ Project Structure
-
-```
+```bash
 openCV_exp_age/
-├── README.md                 # This file
-├── prd/                      # Product Requirements Documents
-│   └── PRD_Facial_Analysis_Platform.md
-├── docs/                     # Technical documentation
-│   ├── Implementation_Plan_Latest.md
-│   ├── Arwes_Implementation_Guide.md
-│   └── IRIS_Loading_Page_README.md
-├── backend/                  # Flask + OpenCV Python application
-│   ├── README.md
-│   ├── app.py               # Main Flask application
-│   ├── requirements.txt     # Python dependencies
-│   ├── models/              # AI model files
-│   ├── services/            # Business logic services
-│   ├── routes/              # API endpoints
-│   └── utils/               # Utility functions
-├── frontend/                # Next.js + Arwes React application
-│   ├── README.md
-│   ├── package.json         # Node.js dependencies
-│   ├── next.config.js       # Next.js configuration
-│   ├── tailwind.config.js   # Tailwind CSS configuration
-│   ├── app/                 # Next.js 15 app router
-│   ├── components/          # React components
-│   ├── hooks/               # Custom React hooks
-│   ├── lib/                 # Utility libraries
-│   ├── stores/              # State management
-│   └── styles/              # CSS and styling
-└── docker-compose.yml       # Development environment
+├── prd/              # Product Requirements
+├── docs/             # Technical documentation
+├── backend/          # Flask + OpenCV
+├── frontend/         # Next.js + Arwes
+└── docker-compose.yml
 ```
+
+---
 
 ## 🚀 Quick Start
-
 ### Prerequisites
-- **Python 3.12+** with pip
-- **Node.js 20+** with npm
-- **Docker** (optional, for containerized development)
-- **Webcam** for live facial analysis
+- Python **3.12+**
+- Node.js **20+**
+- Docker (optional)
+- Webcam  
 
-### Development Setup
+### Local Setup
+```bash
+# Clone repo
+git clone <repository-url>
+cd openCV_exp_age
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd openCV_exp_age
-   ```
+# Backend
+cd backend
+pip install -r requirements.txt
+python app.py
 
-2. **Backend Setup**
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   python app.py
-   ```
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
 
-3. **Frontend Setup**
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
+🌐 Access:  
+- Frontend → `http://localhost:3000`  
+- Backend API → `http://localhost:5000`
 
-4. **Access the application**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:5000
-
-### Docker Development (Alternative)
-
+### Docker Setup
 ```bash
 docker-compose up --build
 ```
 
-## 🎨 Key Features
+---
 
-### Visual Design
-- **Arwes UI Framework**: Futuristic cyberpunk aesthetic
-- **IRIS Loading Page**: Animated eye/iris with scanning effects
-- **Real-time Overlays**: Face detection boxes with glowing effects
-- **Responsive Design**: Works on desktop, tablet, and mobile
-
-### Technical Capabilities
-- **Computer Vision**: OpenCV 4.9+ with MediaPipe face detection
-- **AI Models**:
-  - DEX (Deep EXpectation) VGG-16 for accurate age estimation
-  - EmoNeXt ConvNeXt-based for emotion recognition
-  - InsightFace as fallback for enhanced reliability
-- **Real-time Communication**: WebSocket for live data streaming
-- **Performance**: 155+ FPS processing with frame skip optimization
-
-### User Experience
-- **Instant Feedback**: Real-time visual and audio responses
-- **Multi-person Support**: Detect up to 5 faces simultaneously
-- **Privacy-focused**: No data storage, processing only
-- **Accessibility**: WCAG 2.1 AA compliant with reduced motion support
-
-## 🎯 Target Audience
-
-- **Primary**: Tech fair attendees (ages 8-80)
-- **Secondary**: Robotics club members and educators
-- **Tertiary**: Industry professionals and potential sponsors
-
-## 🛠️ Technology Stack
-
-### Backend
-- **Framework**: Flask 3.0+ with Flask-SocketIO
-- **Computer Vision**: OpenCV 4.9+, MediaPipe 0.10+
-- **AI/ML**:
-  - TensorFlow 2.19+ for DEX age estimation
-  - PyTorch 2.8+ for EmoNeXt emotion recognition
-  - InsightFace for fallback analysis
-- **Communication**: WebSocket, RESTful APIs
-
-### Frontend
-- **Framework**: Next.js 15+ with React 18+
-- **UI Library**: Arwes 1.0+ (Cyberpunk/Sci-fi components)
-- **Styling**: Tailwind CSS 3.4+
-- **Animations**: Framer Motion 11+
-- **State**: Zustand 4.4+
-
-### Infrastructure
-- **Development**: Docker Compose
-- **Deployment**: Docker containers with Nginx
-- **Monitoring**: Prometheus + Grafana
-- **Database**: SQLite/PostgreSQL (analytics only)
-
-## 📋 Development Phases
-
-### ✅ Phase 1: Foundation Setup
-- [x] Project structure organization
-- [ ] Flask backend with basic OpenCV
-- [ ] Next.js frontend with Arwes
-- [ ] WebSocket communication
-
-### 🔄 Phase 2: Core Analysis Features
-- [ ] Face detection implementation
-- [ ] Age estimation models
-- [ ] Emotion recognition
-- [ ] Real-time data streaming
-
-### 🔄 Phase 3: Enhanced Features
-- [ ] Multi-face support
-- [ ] Advanced UI animations
-- [ ] Performance optimization
-- [ ] Error handling
-
-### 🔄 Phase 4: Production Ready
-- [ ] Comprehensive testing
-- [ ] Deployment configuration
-- [ ] Performance monitoring
-- [ ] Documentation completion
-
-## 🎪 Demo Usage
-
-Perfect for:
-- **Robotics club events** and tech fairs
-- **STEM education** demonstrations
-- **Computer vision** showcases
-- **AI/ML** educational content
-- **Interactive exhibits** at science museums
-
-## 🤝 Contributing
-
-This project is developed for the IRIS Robotics Club. For contributions:
-
-1. Fork the repository
-2. Create a feature branch
-3. Follow the established coding standards
-4. Test thoroughly on multiple devices
-5. Submit a pull request
-
-## 📄 License
-
-Developed for educational and demonstration purposes by the IRIS Robotics Club. 
-
-## 🆘 Support
-
-For technical support or questions:
-- Check the documentation in `/docs/`
-- Review component README files
-- Open an issue for bugs or feature requests
+## 🎨 Features
+- Cyberpunk UI with **Arwes**
+- Animated **IRIS loading screen**
+- Real-time glowing overlays
+- Responsive design  
+- Multi-face detection (up to 5 people)  
+- Instant visual/audio feedback  
+- **Privacy-first** (no storage)  
+- WCAG 2.1 AA accessibility  
 
 ---
 
-**Built with ❤️ by the IRIS Robotics Club** 🤖✨
+## 🛠️ Tech Stack
+<p align="center">
+  <img src="https://skillicons.dev/icons?i=python,flask,opencv,tensorflow,pytorch,react,nextjs,tailwind,docker,postgresql,prometheus,grafana&perline=6" />
+</p>
 
-*Showcasing the future of computer vision and AI technology*
+---
+
+## 📋 Roadmap
+- ✅ Phase 1 – Setup (Flask + Next.js + WebSocket)  
+- 🔄 Phase 2 – Core Features (face, age, emotion detection)  
+- 🔄 Phase 3 – Multi-face support + UI animations  
+- 🔄 Phase 4 – Production-ready (testing, monitoring, docs)  
+
+---
+
+## 🎪 Demo Use Cases
+- Robotics club events ⚡  
+- Tech fairs & exhibitions 🏆  
+- STEM education 📚  
+- Museum interactive displays 🏛️  
+
+---
+
+## 🤝 Contributing
+We welcome contributions!  
+
+1. Fork the repo  
+2. Create a feature branch (`git checkout -b feature-name`)  
+3. Commit your changes (`git commit -m "Add feature"`)  
+4. Push and open a PR 🎉  
+
+📑 Check [docs/](./docs/) for guidelines.  
+
+---
+
+## 📄 License
+Licensed under the **MIT License** – see [LICENSE](./LICENSE).  
+
+---
+
+## 🆘 Support
+- 📖 Docs → [docs/](./docs/)  
+- 🐞 Issues → [GitHub Issues](../../issues)  
+- 💬 Contact → IRIS Robotics Club  
+
+<p align="center">Built with ❤️ by the <b>IRIS Robotics Club</b> 🤖✨</p>
