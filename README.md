@@ -3,18 +3,6 @@
   A real-time <b>facial analysis platform</b> showcasing <b>Computer Vision + AI</b> for robotics club events and tech fairs.
 </p>
 
-<p align="center">
-  <a href="https://github.com/iris-robotics-club/facial-analysis-platform/stargazers">
-    <img src="https://img.shields.io/github/stars/iris-robotics-club/facial-analysis-platform?style=for-the-badge&logo=github&color=4D9EFF"/>
-  </a>
-  <a href="https://github.com/iris-robotics-club/facial-analysis-platform/issues">
-    <img src="https://img.shields.io/github/issues/iris-robotics-club/facial-analysis-platform?style=for-the-badge&color=orange"/>
-  </a>
-  <a href="https://github.com/iris-robotics-club/facial-analysis-platform/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/iris-robotics-club/facial-analysis-platform?style=for-the-badge&color=green"/>
-  </a>
-</p>
-
 ---
 
 ## 📖 Table of Contents
